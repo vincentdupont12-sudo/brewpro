@@ -1,0 +1,21 @@
+{
+  "name": "BrewMaster Pro",
+  "short_name": "BrewMaster",
+  "description": "Assistant de brassage pour les copains",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#f59e0b",
+  "icons": [
+    {
+      "src": "/mash_out.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/mash_out.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
