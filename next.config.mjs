@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'export',
+  basePath: '/brewpro',
   images: { unoptimized: true },
-  // On vire tout le reste pour laisser GitHub gérer
 };
 export default nextConfig;
