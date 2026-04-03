@@ -1,12 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'export',
-  // Très important : ajoute le nom de ton dépôt ici
-  basePath: '/brewpro', 
-  assetPrefix: '/brewpro', 
   images: {
     unoptimized: true,
   },
+  // On ne met PAS de basePath pour l'instant pour tester la racine
 };
 
 export default nextConfig;
