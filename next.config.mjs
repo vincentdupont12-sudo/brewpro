@@ -1,12 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'export',
-  basePath: '/brewpro', // Remplace par le nom EXACT de ton repo GitHub
-  assetPrefix: '/brewpro', 
+  basePath: '/brewpro',
+  assetPrefix: '/brewpro/', // Ajoute bien le slash ici
   images: {
-    unoptimized: true, // Le mode Sudo pour les images
+    unoptimized: true,
   },
-  trailingSlash: true,
 };
-
 export default nextConfig;
