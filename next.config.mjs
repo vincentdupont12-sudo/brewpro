@@ -2,9 +2,11 @@
 const nextConfig = {
   output: 'export',
   basePath: '/brewpro',
-  assetPrefix: '/brewpro/', // Ajoute bien le slash ici
+  assetPrefix: '/brewpro/', 
   images: {
     unoptimized: true,
   },
+  trailingSlash: true, // Crucial pour que l'index.html soit trouvé
 };
+
 export default nextConfig;
