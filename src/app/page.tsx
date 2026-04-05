@@ -1,42 +1,179 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Image from "next/image";
 
-/* ================= TYPES ================= */
+/* ================= TYPES STRICTS ================= */
 
-interface Ingredient { name: string; weight: number; yield?: number; alpha?: number; }
-interface Recipe { id: number; name: string; volume: number; malts: any[]; hops: any[]; }
+interface Malt {
+  name: string;
+  weight: number;
+  color: number;
+  yield: number;
+}
 
-/* ================= CONFIG ================= */
+interface Hop {
+  name: string;
+  weight: number;
+  alpha: number;
+}
 
-const STORAGE_KEY = "brewpro_v8";
-const TABS = ["recettes", "process", "creation"];
+interface Recipe {
+  id: number;
+  name: string;
+  volume: number;
+  malts: Malt[];
+  hops: Hop[];
+}
 
-const STEPS = [
-  { name: "Concassage", key: "concassage", duration: 0 },
-  { name: "Empâtage", key: "empatage", duration: 60 },
-  { name: "Mash-out", key: "mash_out", duration: 10 },
-  { name: "Filtration", key: "filtre", duration: 0 },
-  { name: "Rinçage", key: "rinçage", duration: 0 },
-  { name: "Ébullition", key: "ebullition", duration: 60 },
-  { name: "Whirlpool", key: "whirlpool", duration: 0 },
-  { name: "Refroidissement", key: "refroidissement", duration: 0 },
-  { name: "Fermentation", key: "fermentation", duration: 10080 },
-  { name: "Sucrage", key: "sucrage", duration: 0 }
+interface Step {
+  name: string;
+  key: string;
+  duration: number;
+  description: string;
+  details?: (recipe: Recipe) => string[];
+  additions?: (recipe: Recipe) => { name: string; amount: string; time?: number }[];
+}
+
+/* ================= UTILS ================= */
+
+const STORAGE_KEY = "brewpro_prod_v16";
+
+const calcOG = (malts: Malt[], vol: number): string => {
+  const points = malts.reduce((a, m) => a + m.weight * m.yield, 0);
+  return (1 + points / vol / 1000).toFixed(3);
+};
+
+const calcIBU = (hops: Hop[], vol: number): number =>
+  Math.round(hops.reduce((a, h) => a + h.weight * h.alpha, 0) / vol);
+
+/* ================= MODULE ANALYSE ================= */
+
+const ResultatsModule = ({ recette }: { recette: Recipe }) => {
+  if (!recette) return null;
+  return (
+    <div className="bg-orange-500/10 border border-orange-500/20 p-4 rounded-2xl mb-2">
+      <div className="flex justify-between items-center">
+        <span className="text-[10px] font-black uppercase text-orange-500 tracking-widest">Analyse</span>
+        <span className="font-mono font-bold text-orange-400">Densité : {calcOG(recette.malts, recette.volume)}</span>
+      </div>
+    </div>
+  );
+};
+
+/* ================= CONFIGURATION ================= */
+
+const PRESET_STOCK: Omit<Recipe, "id">[] = [
+  {
+    name: "IPA Citra S.M.A.S.H",
+    volume: 20,
+    malts: [{ name: "Pale Ale", weight: 5.5, color: 7, yield: 300 }],
+    hops: [{ name: "Citra", weight: 60, alpha: 12.5 }]
+  },
+  {
+    name: "Stout Impérial",
+    volume: 20,
+    malts: [
+      { name: "Maris Otter", weight: 6.0, color: 5, yield: 300 },
+      { name: "Roasted Barley", weight: 0.6, color: 1200, yield: 240 }
+    ],
+    hops: [{ name: "Fuggles", weight: 50, alpha: 4.5 }]
+  }
 ];
 
-/* ================= CALCULS ================= */
+const STEPS: Step[] = [
+  { name: "Concassage", key: "concassage", duration: 0, description: "Broyer les grains" },
+  {
+    name: "Empâtage",
+    key: "empatage",
+    duration: 60,
+    description: "Extraction à 67°C",
+    details: (r) => [`Eau : ${(r.malts.reduce((a, m) => a + m.weight, 0) * 2.7).toFixed(1)} L`]
+  },
+  { name: "Mash-out", key: "mashout", duration: 10, description: "Arrêt enzymatique à 78°C" },
+  { 
+    name: "Rinçage", 
+    key: "rincage", 
+    duration: 0, 
+    description: "Lavage des grains",
+    details: (r) => {
+      const g = r.malts.reduce((a, m) => a + m.weight, 0);
+      const e = Math.max(0, (r.volume * 1.15) - ((g * 2.7) - (g * 0.9))).toFixed(1);
+      return [`Eau : ${e} L`, `Temp : 78°C` ];
+    }
+  },
+  {
+    name: "Ébullition",
+    key: "ebullition",
+    duration: 60,
+    description: "Houblonnage",
+    additions: (r) => r.hops.map((h) => ({ name: h.name, amount: `${h.weight}g`, time: 60 }))
+  },
+  { name: "Fermentation", key: "fermentation", duration: 10080, description: "Repos" }
+];
 
-const calcOG = (m: any[], v: number) => 1 + m.reduce((a, x) => a + (x.weight * (x.yield || 0)), 0) / v / 1000;
-const calcFG = (og: number) => 1 + (og - 1) * 0.25;
-const calcABV = (og: number, fg: number) => ((og - fg) * 131).toFixed(1);
-const calcIBU = (h: any[], v: number) => Math.round(h.reduce((a, x) => a + (x.weight * (x.alpha || 0)), 0) / v);
+/* ================= PAGE PRINCIPALE ================= */
 
-/* ================= TIMER HOOK ================= */
+export default function Page() {
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [selected, setSelected] = useState<Recipe | null>(null);
 
-function useTimer(min: number) {
-  const [time, setTime] = useState(min * 60);
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) setRecipes(JSON.parse(saved));
+    else {
+      const initial = PRESET_STOCK.map((r, idx) => ({ ...r, id: Date.now() + idx }));
+      setRecipes(initial);
+    }
+  }, []);
+
+  const reloadStock = () => {
+    const news = PRESET_STOCK.map((r, idx) => ({ ...r, id: Date.now() + Math.random() + idx }));
+    setRecipes([...recipes, ...news]);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#09090B] text-white font-sans">
+      <header className="p-6 border-b border-white/5 flex justify-between items-center sticky top-0 bg-black/80 backdrop-blur-md z-50">
+        <h1 className="text-xl font-black text-orange-500 italic">BREWPRO.</h1>
+        {!selected && (
+           <button onClick={reloadStock} className="text-[10px] bg-white/5 border border-white/10 px-4 py-2 rounded-full font-black">+ STOCK</button>
+        )}
+      </header>
+
+      {selected ? (
+        <Process recipe={selected} onBack={() => setSelected(null)} />
+      ) : (
+        <div className="p-6 space-y-4 max-w-md mx-auto">
+          <h2 className="text-xs font-black opacity-30 uppercase tracking-[0.3em]">Stock</h2>
+          {recipes.map((r) => (
+            <div key={r.id} onClick={() => setSelected(r)} className="p-5 bg-white/[0.03] rounded-[2rem] border border-white/10 active:scale-95 transition-all cursor-pointer">
+              <div className="text-lg font-bold">{r.name}</div>
+              <div className="text-[10px] opacity-40 flex gap-4 mt-2 font-mono uppercase">
+                <span>{r.volume}L</span>
+                <span className="text-orange-400 font-bold">OG: {calcOG(r.malts, r.volume)}</span>
+                <span>IBU: {calcIBU(r.hops, r.volume)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================= PROCESS ================= */
+
+function Process({ recipe, onBack }: { recipe: Recipe; onBack: () => void }) {
+  const [step, setStep] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [time, setTime] = useState(STEPS[step].duration * 60);
   const [run, setRun] = useState(false);
+
+  useEffect(() => {
+    setTime(STEPS[step].duration * 60);
+    setRun(false);
+  }, [step]);
 
   useEffect(() => {
     if (!run) return;
@@ -44,203 +181,60 @@ function useTimer(min: number) {
     return () => clearInterval(i);
   }, [run]);
 
-  const reset = (m: number) => { setTime(m * 60); setRun(false); };
-  return { time, run, setRun, reset };
-}
-
-const format = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
-
-/* ================= APP PRINCIPALE ================= */
-
-export default function Page() {
-  const [tab, setTab] = useState("recettes");
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [selected, setSelected] = useState<Recipe | null>(null);
-
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) setRecipes(JSON.parse(saved));
-    else setRecipes([
-      { id: 1, name: "IPA", volume: 20, malts: [{ name: "Pale", weight: 5, yield: 300 }], hops: [{ name: "Cascade", weight: 50, alpha: 8 }] },
-      { id: 2, name: "Stout", volume: 20, malts: [{ name: "Roasted", weight: 5, yield: 280 }], hops: [{ name: "Fuggles", weight: 30, alpha: 4 }] }
-    ]);
-  }, []);
-
-  useEffect(() => {
-    if (recipes.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
-  }, [recipes]);
-
-  return (
-    <div className="min-h-screen bg-[#0B0B0F] text-white">
-      <div className="p-4 text-xl font-semibold">🍺 BrewPro</div>
-
-      <div className="p-4 pb-24 max-w-md mx-auto space-y-4">
-        {tab === "recettes" && recipes.map(r => (
-          <div key={r.id}
-            onClick={() => { setSelected(r); setTab("process"); }}
-            className="bg-white/5 border border-white/10 p-4 rounded-2xl active:scale-95 cursor-pointer">
-            <div className="font-semibold">{r.name}</div>
-            <div className="text-sm opacity-70">
-              OG {calcOG(r.malts, r.volume).toFixed(3)} • IBU {calcIBU(r.hops, r.volume)}
-            </div>
-          </div>
-        ))}
-
-        {tab === "process" && selected && <Process recipe={selected} />}
-        {tab === "creation" && <Creation recipes={recipes} setRecipes={setRecipes} />}
-      </div>
-
-      {/* NAVIGATION BASSE */}
-      <div className="fixed bottom-0 left-0 right-0 bg-[#111] border-t border-white/10 flex">
-        {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} 
-            className={`flex-1 p-4 text-sm uppercase tracking-wider ${tab === t ? "text-white font-bold" : "text-white/40"}`}>
-            {t}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ================= COMPOSANT PROCESS ================= */
-
-function Process({ recipe }: { recipe: Recipe }) {
-  const [step, setStep] = useState(0);
-  const ref = useRef<HTMLDivElement>(null);
-  const timer = useTimer(STEPS[step].duration);
-
-  useEffect(() => { timer.reset(STEPS[step].duration); }, [step]);
-
-  useEffect(() => {
-    const el = ref.current?.children[step] as HTMLElement;
-    el?.scrollIntoView({ behavior: "smooth", inline: "center" });
+    const el = scrollRef.current?.children[step] as HTMLElement;
+    el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   }, [step]);
 
-  const hasTimer = STEPS[step].duration > 0;
-  const nextStep = () => setStep(s => Math.min(s + 1, STEPS.length - 1));
-
-  const og = calcOG(recipe.malts, recipe.volume);
-  const fg = calcFG(og);
-
   return (
-    <div className="space-y-4">
-      <h2 className="font-semibold text-center text-lg">{recipe.name}</h2>
+    <div className="p-4 space-y-6 max-w-md mx-auto pb-12">
+      <button onClick={onBack} className="text-[10px] font-black opacity-30 uppercase tracking-[0.2em]">← Retour</button>
 
-      {/* CAROUSEL ÉTAPES */}
-      <div
-        ref={ref}
-        className="flex gap-4 overflow-x-auto px-1 py-2 scrollbar-hide"
-        style={{ WebkitOverflowScrolling: "touch", scrollSnapType: "x mandatory" }}
-      >
+      <div ref={scrollRef} className="flex gap-4 overflow-x-auto pb-2 no-scrollbar snap-x">
         {STEPS.map((s, i) => (
-          <div
-            key={i}
-            onClick={() => setStep(i)}
-            className={`flex-shrink-0 w-28 p-3 rounded-2xl text-center transition transform cursor-pointer
-            ${i === step ? "bg-white text-black scale-105 shadow-lg" : "bg-white/5 border border-white/10"}
-            `}
-            style={{ scrollSnapAlign: "center" }}
-          >
-            <img
-              src={`/brewpro/icons/${s.key}.png`}
-              alt={s.name}
-              className={`w-8 h-8 mx-auto mb-2 ${i === step ? "invert-0" : "invert opacity-50"}`}
-              onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/brewpro/icons/default.png"; }}
-            />
-            <div className="text-[10px] font-bold uppercase">{s.name}</div>
+          <div key={i} onClick={() => setStep(i)} className="snap-center flex-shrink-0 w-16 text-center cursor-pointer">
+            <div className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center border transition-all ${i === step ? "bg-orange-500 border-orange-400 scale-110 shadow-lg" : "bg-white/5 border-white/5 opacity-20"}`}>
+              <Image src={`/brewpro/icons/${s.key}.png`} alt={s.name} width={20} height={20} className={i === step ? "" : "grayscale"} />
+            </div>
+            <div className={`text-[8px] mt-2 font-black uppercase ${i === step ? "text-orange-400" : "opacity-20"}`}>{s.name}</div>
           </div>
         ))}
       </div>
 
-      {/* TIMER CARD */}
-      {hasTimer && (
-        <div className="bg-white/5 border border-white/10 p-6 rounded-3xl text-center">
-          <div className="text-6xl font-bold font-mono">{format(timer.time)}</div>
-          <div className="flex gap-2 mt-4">
-            <button onClick={() => timer.setRun(!timer.run)}
-              className={`flex-1 py-3 rounded-xl font-bold ${timer.run ? "bg-red-500/20 text-red-500" : "bg-white text-black"}`}>
-              {timer.run ? "Pause" : "Start"}
+      <div className="flex gap-3 px-1">
+        <button onClick={() => setStep(s => Math.max(0, s - 1))} className="flex-1 bg-white/5 border border-white/10 py-3 rounded-xl text-[9px] font-black uppercase">Précédent</button>
+        <button onClick={() => setStep(s => Math.min(STEPS.length - 1, s + 1))} className="flex-[2] bg-orange-600 py-3 rounded-xl text-[9px] font-black tracking-widest uppercase shadow-lg shadow-orange-900/20">Suivant</button>
+      </div>
+
+      <ResultatsModule recette={recipe} />
+
+      <div className="bg-white/[0.03] border border-white/10 p-6 rounded-[2.5rem] space-y-6 shadow-2xl text-center">
+        <h2 className="text-2xl font-black italic uppercase tracking-tight">{STEPS[step].name}</h2>
+        <p className="text-xs opacity-40 px-4">{STEPS[step].description}</p>
+
+        {STEPS[step].details && (
+          <div className="space-y-2 bg-black/40 p-4 rounded-3xl border border-white/5">
+            {STEPS[step].details!(recipe).map((d, i) => (
+              <div key={i} className="flex justify-between text-[11px] items-center">
+                <span className="opacity-40 font-bold uppercase text-[8px]">{d.split(":")[0]}</span>
+                <span className="font-mono font-bold text-orange-400">{d.split(":")[1]}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {STEPS[step].duration > 0 && (
+        <div className="bg-white/5 border border-white/10 p-8 rounded-[2.5rem] text-center shadow-inner">
+          <div className="text-6xl font-mono font-black mb-6">{Math.floor(time / 60)}:{(time % 60).toString().padStart(2, "0")}</div>
+          <div className="flex gap-3">
+            <button onClick={() => setRun(!run)} className={`flex-[2] py-4 rounded-2xl font-black text-[10px] tracking-widest ${run ? "bg-red-500/20 text-red-500 border border-red-500/20" : "bg-white text-black active:scale-95"}`}>
+              {run ? "STOP" : "LANCER"}
             </button>
-            <button onClick={() => timer.reset(STEPS[step].duration)}
-              className="flex-1 bg-white/10 py-3 rounded-xl">
-              Reset
-            </button>
+            <button onClick={() => setTime(STEPS[step].duration * 60)} className="flex-1 bg-white/5 border border-white/10 py-4 rounded-2xl font-black text-[10px]">RESET</button>
           </div>
         </div>
       )}
-
-      {/* BOUTON ÉTAPE SUIVANTE */}
-      <button
-        onClick={nextStep}
-        className="w-full bg-white/10 border border-white/10 text-white py-4 rounded-2xl text-lg font-semibold active:scale-95 transition-transform"
-      >
-        Étape suivante →
-      </button>
-
-      {/* STATS RÉCAPITULATIVES */}
-      <div className="grid grid-cols-2 gap-3 text-xs uppercase tracking-tighter">
-        <StatBox label="OG" value={og.toFixed(3)} />
-        <StatBox label="FG" value={fg.toFixed(3)} />
-        <StatBox label="ABV" value={`${calcABV(og, fg)}%`} />
-        <StatBox label="IBU" value={calcIBU(recipe.hops, recipe.volume).toString()} />
-      </div>
-    </div>
-  );
-}
-
-function StatBox({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-white/5 p-3 rounded-xl border border-white/5 text-center">
-      <div className="opacity-40 mb-1">{label}</div>
-      <div className="text-lg font-bold">{value}</div>
-    </div>
-  );
-}
-
-/* ================= COMPOSANT CRÉATION ================= */
-
-function Creation({ recipes, setRecipes }: any) {
-  const [name, setName] = useState("");
-  const [volume, setVolume] = useState(20);
-
-  function add() {
-    if (!name) return;
-    setRecipes([...recipes, {
-      id: Date.now(),
-      name,
-      volume,
-      malts: [{ name: "Pilsner", weight: 5, yield: 300 }],
-      hops: [{ name: "Saaz", weight: 20, alpha: 5 }]
-    }]);
-    setName("");
-    alert("Recette sauvegardée !");
-  }
-
-  return (
-    <div className="space-y-4 bg-white/5 p-6 rounded-2xl border border-white/10">
-      <h3 className="font-bold">Nouvelle Recette</h3>
-      <input 
-        value={name} 
-        onChange={e => setName(e.target.value)}
-        placeholder="Nom (ex: Smash Mosaic)"
-        className="w-full p-3 bg-black/40 border border-white/10 rounded-xl focus:border-white/30 outline-none" 
-      />
-      <div className="flex items-center justify-between">
-        <label className="text-sm opacity-60">Volume Brassin (L)</label>
-        <input 
-          type="number" 
-          value={volume}
-          onChange={e => setVolume(Number(e.target.value))}
-          className="w-20 bg-black/40 p-2 rounded-lg border border-white/10 text-center" 
-        />
-      </div>
-      <button 
-        onClick={add}
-        className="w-full bg-white text-black p-4 rounded-xl font-bold active:scale-95 transition-transform"
-      >
-        Sauvegarder la recette
-      </button>
     </div>
   );
 }
