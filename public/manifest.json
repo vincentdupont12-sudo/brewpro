@@ -1,19 +1,20 @@
 {
-  "name": "BrewMaster Pro",
-  "short_name": "BrewMaster",
-  "description": "Assistant de brassage pour les copains",
+  "name": "BrewPro",
+  "short_name": "BrewPro",
+  "description": "Advanced Brewing System",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#f59e0b",
+  "background_color": "#050505",
+  "theme_color": "#D4AF37",
+  "orientation": "portrait",
   "icons": [
     {
-      "src": "/mash_out.png",
+      "src": "/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "/mash_out.png",
+      "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }
