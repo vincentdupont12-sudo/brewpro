@@ -1,184 +1,257 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 
-export default function BrewMasterPush() {
-  const [isMounted, setIsMounted] = useState(false);
-  const [recipes, setRecipes] = useState<any[]>([]);
+// --- TYPES ---
+interface Step {
+  id: string;
+  type: "PALIER" | "ACTION";
+  title: string;
+  target: string;
+  value: string; 
+}
+
+interface Recipe {
+  id: number;
+  name: string;
+  steps: Step[];
+}
+
+export default function BrewMasterV3() {
   const [view, setView] = useState<"home" | "create" | "library" | "detail">("home");
-  const [selectedRecipe, setSelectedRecipe] = useState<any | null>(null);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
 
-  // Initialisation et chargement des données
   useEffect(() => {
-    setIsMounted(true);
-    const saved = localStorage.getItem("recipes_final_v12");
-    if (saved) {
-      setRecipes(JSON.parse(saved));
-    } else {
-      const presets = [
-        {
-          id: 1, name: "IPA CITRA GALACTIQUE", volume: 20, targetABV: 6.5,
-          steps: [
-            { id: '1a', type: "ACTION", title: "CONCASSAGE DES GRAINS", target: "Finesse 1.2mm", value: "", ingredient: "5kg Pale Ale / 500g Cara" },
-            { id: '1b', type: "CHRONO", title: "EMPÂTAGE (MASH)", target: "66°C", value: "60", ingredient: "Ratio 3:1" },
-            { id: '1c', type: "CHRONO", title: "MASH OUT", target: "78°C", value: "10", ingredient: "Arrêt enzymatique" },
-            { id: '1d', type: "ACTION", title: "RINCAGE / SPARGING", target: "78°C", value: "", ingredient: "12L eau chaude" },
-            { id: '1e', type: "CHRONO", title: "ÉBULLITION (AMER)", target: "100°C", value: "60", ingredient: "20g Magnum" },
-            { id: '1f', type: "CHRONO", title: "WHIRLPOOL", target: "80°C", value: "15", ingredient: "100g Citra" },
-            { id: '1g', type: "ACTION", title: "REFROIDISSEMENT", target: "20°C", value: "", ingredient: "Levure US-05" }
-          ]
-        },
-        {
-          id: 2, name: "BELGIAN WITBIER", volume: 20, targetABV: 4.8,
-          steps: [
-            { id: '2a', type: "CHRONO", title: "PALIER PROTÉIQUE", target: "50°C", value: "15", ingredient: "Froment + Pils" },
-            { id: '2b', type: "CHRONO", title: "PALIER MALTOSE", target: "63°C", value: "45", ingredient: "" },
-            { id: '2c', type: "CHRONO", title: "SACCHARIFICATION", target: "72°C", value: "20", ingredient: "" },
-            { id: '2d', type: "CHRONO", title: "ÉBULLITION", target: "100°C", value: "60", ingredient: "15g Saaz" },
-            { id: '2e', type: "AJOUT", title: "BOTANIQUES", target: "100°C", value: "10", ingredient: "Coriandre / Orange" }
-          ]
-        },
-        {
-          id: 3, name: "STOUT AU CAFÉ", volume: 18, targetABV: 5.5,
-          steps: [
-            { id: '3a', type: "CHRONO", title: "EMPÂTAGE CORPS", target: "68°C", value: "60", ingredient: "Grains torréfiés" },
-            { id: '3b', type: "CHRONO", title: "ÉBULLITION", target: "100°C", value: "60", ingredient: "Fuggles" },
-            { id: '3c', type: "AJOUT", title: "COLD BREW", target: "20°C", value: "", ingredient: "250ml Café concentré" }
-          ]
-        }
-      ];
-      setRecipes(presets);
-      localStorage.setItem("recipes_final_v12", JSON.stringify(presets));
-    }
+    const saved = localStorage.getItem("BREW_EXCELLENT_SAVE");
+    if (saved) setRecipes(JSON.parse(saved));
   }, []);
 
-  if (!isMounted) return <div className="min-h-screen bg-black" />;
-
-  const handleSave = (r: any) => {
-    const updated = [r, ...recipes.filter(x => x.id !== r.id)];
-    setRecipes(updated);
-    localStorage.setItem("recipes_final_v12", JSON.stringify(updated));
+  const saveRecipe = (r: Recipe) => {
+    const newRecipes = [r, ...recipes.filter(x => x.id !== r.id)];
+    setRecipes(newRecipes);
+    localStorage.setItem("BREW_EXCELLENT_SAVE", JSON.stringify(newRecipes));
     setView("library");
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-yellow-500">
-      {view === "home" && <HomeView onNav={setView} />}
-      {view === "library" && <LibraryView recipes={recipes} onBack={() => setView("home")} onSelect={(r) => { setSelectedRecipe(r); setView("detail"); }} />}
-      {view === "detail" && selectedRecipe && <DetailView recipe={selectedRecipe} onBack={() => setView("library")} onEdit={() => setView("create")} />}
-      {view === "create" && <LabView onSave={handleSave} onCancel={() => setView("library")} initialData={selectedRecipe} />}
+    <div className="min-h-screen bg-black text-white font-sans uppercase p-4">
+      {view === "home" && <Home onNav={setView} />}
+      {view === "library" && (
+        <Library 
+          recipes={recipes} 
+          onBack={() => setView("home")} 
+          onSelect={(r: Recipe) => { setSelectedRecipe(r); setView("detail"); }} 
+        />
+      )}
+      {view === "detail" && <Detail recipe={selectedRecipe} onBack={() => setView("library")} />}
+      {view === "create" && <Lab onSave={saveRecipe} onCancel={() => setView("home")} />}
     </div>
   );
 }
 
-/* --- VUES --- */
-
-function HomeView({ onNav }: any) {
-  return (
-    <div className="max-w-md mx-auto p-12 pt-32 space-y-8 animate-in fade-in duration-700">
-      <h1 className="text-7xl font-black italic text-yellow-500 uppercase leading-[0.8] tracking-tighter">BREW<br/>MASTER</h1>
-      <div className="grid gap-4 pt-10">
-        <button onClick={() => onNav("library")} className="bg-white text-black p-8 rounded-[2.5rem] font-black italic text-3xl flex justify-between items-center active:scale-95 transition-all">ARCHIVES <span>→</span></button>
-        <button onClick={() => { setSelectedRecipe(null); onNav("create"); }} className="bg-[#111] p-8 rounded-[2.5rem] font-black italic text-2xl border border-white/5 active:scale-95 transition-all uppercase">Nouveau Lab</button>
-      </div>
-    </div>
-  );
-}
-
-function LibraryView({ recipes, onBack, onSelect }: any) {
-  return (
-    <div className="max-w-md mx-auto p-6 pt-12 text-left animate-in slide-in-from-right-8 pb-32">
-      <button onClick={onBack} className="text-[10px] font-black opacity-30 mb-8 uppercase tracking-widest">← MENU</button>
-      <h2 className="text-4xl font-black italic uppercase text-yellow-500 mb-10 tracking-tighter">Mes Recettes</h2>
-      <div className="space-y-4">
-        {recipes.map((r: any) => (
-          <div key={r.id} onClick={() => onSelect(r)} className="bg-[#111] p-8 rounded-[3rem] border border-white/5 active:scale-95 cursor-pointer flex justify-between items-center group shadow-xl transition-all">
-            <div>
-              <h4 className="font-black italic uppercase text-2xl group-hover:text-yellow-500">{r.name}</h4>
-              <p className="text-[9px] font-black text-white/30 uppercase mt-1">{r.targetABV}% ABV • {r.volume}L • {r.steps?.length || 0} ÉTAPES</p>
-            </div>
-            <div className="text-yellow-500 font-black italic opacity-20">→</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DetailView({ recipe, onBack, onEdit }: any) {
-  const [activeTimerId, setActiveTimerId] = useState<string | null>(null);
-  const [timeLeft, setTimeLeft] = useState<number>(0);
-  const timerRef = useRef<any>(null);
-
-  const startTimer = (id: string, minutes: string) => {
-    if (activeTimerId === id) { clearInterval(timerRef.current); setActiveTimerId(null); return; }
-    const totalSeconds = parseInt(minutes) * 60;
-    if (isNaN(totalSeconds) || totalSeconds <= 0) return;
-    setActiveTimerId(id); setTimeLeft(totalSeconds);
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-        setTimeLeft(prev => {
-            if (prev <= 1) { 
-                clearInterval(timerRef.current); setActiveTimerId(null);
-                try { new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg").play(); } catch(e){}
-                return 0; 
-            }
-            return prev - 1;
-        });
-    }, 1000);
+// --- LE COMPOSANT TIMER (RÉPARÉ & COMPLET) ---
+function StepTimer({ step }: { step: Step }) {
+  const getInitialSeconds = () => {
+    const mins = parseInt(step.value);
+    return isNaN(mins) ? 0 : mins * 60;
   };
 
-  return (
-    <div className="max-w-md mx-auto p-6 pt-12 text-left pb-40">
-      <div className="flex justify-between items-center mb-8">
-        <button onClick={onBack} className="text-[10px] font-black opacity-30 uppercase tracking-widest">← RETOUR</button>
-        <button onClick={onEdit} className="text-[10px] font-black text-yellow-500 uppercase">Éditer</button>
+  const [timeLeft, setTimeLeft] = useState(getInitialSeconds());
+  const [isActive, setIsActive] = useState(false);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync avec les changements d'inputs
+  useEffect(() => {
+    setTimeLeft(getInitialSeconds());
+    setIsActive(false);
+  }, [step.value, step.id]);
+
+  useEffect(() => {
+    if (isActive && timeLeft > 0) {
+      timerRef.current = setInterval(() => setTimeLeft((prev) => prev - 1), 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (timeLeft === 0) setIsActive(false);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [isActive, timeLeft]);
+
+  const format = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec < 10 ? "0" : ""}${sec}`;
+  };
+
+  if (step.type === "ACTION") {
+    return (
+      <div className="p-4 rounded-3xl bg-zinc-900 border border-white/5 mb-2">
+        <div className="text-[8px] opacity-30 font-black mb-1 text-blue-400">ACTION</div>
+        <div className="text-base font-black italic tracking-tighter uppercase">{step.title || "SANS NOM"}</div>
+        <div className="text-white/40 text-[9px] mt-1 italic">{step.target}</div>
       </div>
-      <h1 className="text-5xl font-black italic uppercase text-yellow-500 leading-none mb-10 tracking-tighter">{recipe.name}</h1>
-      <div className="space-y-4">
-          {recipe.steps?.map((step: any) => {
-              const isActive = activeTimerId === step.id;
-              return (
-                <div key={step.id} className={`p-8 rounded-[2.5rem] border transition-all ${isActive ? 'bg-yellow-500 border-yellow-400 scale-[1.02] shadow-2xl' : 'bg-[#111] border-white/5'}`}>
-                    <div className="flex justify-between items-center mb-6">
-                        <span className={`text-[9px] font-black px-3 py-1 rounded-full ${isActive ? 'bg-black text-yellow-500' : 'bg-white/10 text-white'}`}>{step.type}</span>
-                        {step.type === "CHRONO" && (
-                            <button onClick={() => startTimer(step.id, step.value)} className={`p-4 px-6 rounded-2xl font-black italic text-xs ${isActive ? 'bg-black text-white' : 'bg-yellow-500 text-black'}`}>
-                                {isActive ? 'STOP' : 'START'}
-                            </button>
-                        )}
-                    </div>
-                    <h4 className={`text-2xl font-black italic uppercase mb-2 ${isActive ? 'text-black' : 'text-white'}`}>{step.title}</h4>
-                    {isActive ? (
-                        <div className="text-5xl font-black text-black italic mb-2 tracking-tighter animate-pulse">{Math.floor(timeLeft/60)}:{(timeLeft%60).toString().padStart(2, '0')}</div>
-                    ) : (
-                        <p className="text-lg font-black opacity-40 italic mb-4 text-white uppercase">{step.value} {step.type === 'CHRONO' ? 'MIN' : ''} {step.target !== '-' ? `• ${step.target}` : ''}</p>
-                    )}
-                    {step.ingredient && <div className={`p-3 rounded-2xl text-[10px] font-black uppercase italic ${isActive ? 'bg-black/10 text-black' : 'bg-black/40 text-green-500'}`}>{step.ingredient}</div>}
-                </div>
-              );
-          })}
+    );
+  }
+
+  return (
+    <div className={`p-4 rounded-[1.8rem] border transition-all duration-300 mb-2 ${isActive ? 'bg-yellow-500 text-black border-yellow-500 shadow-lg' : 'bg-zinc-900 border-white/5'}`}>
+      <div className="flex justify-between items-center mb-3">
+        <div className="overflow-hidden">
+          <h3 className="text-base font-black italic leading-none uppercase tracking-tighter truncate">{step.title || "PALIER"}</h3>
+          <div className={`flex gap-2 mt-1 font-black text-[9px] ${isActive ? 'text-black/50' : 'text-white/30'}`}>
+            <span className={isActive ? 'text-black font-black' : 'text-blue-400'}>{step.target || "--"}</span>
+            <span>•</span>
+            <span>{step.value || "0"} MIN</span>
+          </div>
+        </div>
+        <div className={`text-3xl font-black italic tabular-nums tracking-tighter ${isActive ? 'animate-pulse' : ''}`}>
+          {format(timeLeft)}
+        </div>
+      </div>
+      <div className="flex gap-2">
+        {!isActive && timeLeft === getInitialSeconds() ? (
+          <button onClick={() => setIsActive(true)} className="w-full py-2 bg-yellow-500 text-black rounded-xl font-black text-[10px] border border-black/10">DÉMARRER</button>
+        ) : (
+          <>
+            <button onClick={() => setIsActive(!isActive)} className={`flex-[2] py-2 rounded-xl font-black text-[9px] ${isActive ? 'bg-black text-white' : 'bg-black text-yellow-500'}`}>
+              {isActive ? "PAUSE" : "REPRENDRE"}
+            </button>
+            <button onClick={() => { setIsActive(false); setTimeLeft(getInitialSeconds()); }} className={`flex-1 py-2 rounded-xl font-black text-[9px] border ${isActive ? 'border-black/20 text-black' : 'border-white/10 text-white/40'}`}>
+              RAZ
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-/* --- LAB VIEW (Simplifiée pour éviter les erreurs) --- */
-function LabView({ onSave, onCancel, initialData }: any) {
-  const [form, setForm] = useState<any>(initialData || { id: Date.now(), name: "SANS NOM", volume: 20, targetABV: 5, steps: [] });
+// --- VUE LAB (DRAG & DROP + INPUTS + TIMER) ---
+function Lab({ onSave, onCancel }: any) {
+  const [name, setName] = useState("");
+  const [steps, setSteps] = useState<Step[]>([{ id: "step-" + Date.now(), type: "PALIER", title: "", target: "", value: "60" }]);
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    const animation = requestAnimationFrame(() => setEnabled(true));
+    return () => cancelAnimationFrame(animation);
+  }, []);
+
+  const updateStep = (index: number, field: keyof Step, val: string) => {
+    const newSteps = [...steps];
+    (newSteps[index] as any)[field] = val;
+    setSteps(newSteps);
+  };
+
+  const onDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+    const items = Array.from(steps);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+    setSteps(items);
+  };
+
+  if (!enabled) return null;
 
   return (
-    <div className="max-w-md mx-auto p-6 pb-40">
-      <h2 className="text-2xl font-black italic text-yellow-500 mb-8 uppercase">Configuration</h2>
-      <div className="space-y-4 mb-8">
-        <input className="w-full bg-[#111] p-6 rounded-3xl font-black uppercase text-yellow-500 border border-white/5" value={form.name} onChange={e => setForm({...form, name: e.target.value.toUpperCase()})} placeholder="NOM DE LA RECETTE" />
-        <div className="grid grid-cols-2 gap-4">
-          <input type="number" className="bg-[#111] p-6 rounded-3xl font-black" value={form.volume} onChange={e => setForm({...form, volume: e.target.value})} placeholder="VOL (L)" />
-          <input type="number" className="bg-[#111] p-6 rounded-3xl font-black text-orange-500" value={form.targetABV} onChange={e => setForm({...form, targetABV: e.target.value})} placeholder="ABV %" />
-        </div>
+    <div className="max-w-md mx-auto pb-44">
+      <button onClick={onCancel} className="text-yellow-500 font-black mb-8 block text-[10px] tracking-widest uppercase">← ANNULER</button>
+      <input className="w-full bg-transparent text-5xl font-black italic text-yellow-500 border-b-2 border-white/10 mb-12 outline-none uppercase tracking-tighter" placeholder="NOM BRASSIN" value={name} onChange={e => setName(e.target.value)} />
+      
+      <DragDropContext onDragEnd={onDragEnd}>
+        <Droppable droppableId="steps-droppable">
+          {(provided) => (
+            <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-8">
+              {steps.map((s, i) => (
+                <Draggable key={s.id} draggableId={s.id} index={i}>
+                  {(provided, snapshot) => (
+                    <div ref={provided.innerRef} {...provided.draggableProps} className={`relative group ${snapshot.isDragging ? "z-50" : ""}`}>
+                      {/* CARTE D'ÉDITION */}
+                      <div className={`bg-zinc-900 p-6 rounded-[2rem] border transition-all ${snapshot.isDragging ? 'border-yellow-500 shadow-2xl scale-105' : 'border-white/10'}`}>
+                        {/* HANDLE */}
+                        <div {...provided.dragHandleProps} className="absolute -left-2 top-10 bg-yellow-500 text-black p-2 rounded-full shadow-lg cursor-grab active:cursor-grabbing">
+                          <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+                        </div>
+
+                        <div className="flex justify-between items-center mb-4 pl-4">
+                          <select className="bg-black text-yellow-500 font-black p-2 rounded-lg text-[10px] outline-none border border-white/5" value={s.type} onChange={e => updateStep(i, "type", e.target.value as any)}>
+                            <option value="PALIER">PALIER</option>
+                            <option value="ACTION">ACTION</option>
+                          </select>
+                          <button onClick={() => setSteps(steps.filter((_, idx) => idx !== i))} className="text-red-500 text-[10px] font-black uppercase">Suppr.</button>
+                        </div>
+
+                        <div className="pl-4 space-y-4">
+                          <input className="w-full bg-transparent border-b border-white/5 font-black outline-none italic text-xl uppercase tracking-tight placeholder:text-zinc-800" placeholder="NOM ÉTAPE" value={s.title} onChange={e => updateStep(i, "title", e.target.value.toUpperCase())} />
+                          <div className="grid grid-cols-2 gap-4">
+                            <input className="bg-black p-4 rounded-xl text-xs text-blue-400 font-black outline-none" placeholder="Cible" value={s.target} onChange={e => updateStep(i, "target", e.target.value)} />
+                            <input className="bg-black p-4 rounded-xl text-xs font-black outline-none" placeholder="Min" type="number" value={s.value} onChange={e => updateStep(i, "value", e.target.value)} />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* APERÇU DU TIMER EN DIRECT SOUS CHAQUE CARTE */}
+                      <div className="mt-2 px-6 opacity-60 hover:opacity-100 transition-opacity">
+                        <StepTimer step={s} />
+                      </div>
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
+            </div>
+          )}
+        </Droppable>
+      </DragDropContext>
+
+      <button onClick={() => setSteps([...steps, { id: "step-" + Date.now(), type: "PALIER", title: "", target: "", value: "10" }])} className="w-full mt-10 p-6 border-2 border-dashed border-white/10 rounded-3xl opacity-30 font-black text-xs uppercase hover:opacity-100 transition-all">+ AJOUTER ÉTAPE</button>
+      
+      <div className="fixed bottom-8 left-4 right-4 max-w-md mx-auto">
+        <button onClick={() => onSave({ id: Date.now(), name: name || "NOM GÉNÉRIQUE", steps })} className="w-full bg-yellow-500 text-black p-8 rounded-full font-black italic text-2xl shadow-2xl active:scale-95 transition-transform uppercase">ENREGISTRER</button>
       </div>
-      <button onClick={() => onSave(form)} className="w-full bg-yellow-500 p-8 rounded-[2.5rem] text-black font-black italic text-xl uppercase shadow-2xl">SAUVEGARDER</button>
-      <button onClick={onCancel} className="w-full p-6 mt-4 text-[10px] font-black opacity-30 uppercase">Annuler</button>
+    </div>
+  );
+}
+
+// --- VUES HOME, LIBRARY, DETAIL ---
+function Home({ onNav }: any) {
+  return (
+    <div className="max-w-md mx-auto pt-24">
+      <h1 className="text-8xl font-black italic text-yellow-500 leading-[0.75] mb-16 tracking-tighter">BREW<br/>MASTER</h1>
+      <button onClick={() => onNav("create")} className="w-full bg-yellow-500 text-black p-8 rounded-[2rem] font-black italic text-2xl mb-4 text-left shadow-xl active:scale-95 transition-all">NOUVEAU LAB +</button>
+      <button onClick={() => onNav("library")} className="w-full bg-zinc-900 p-8 rounded-[2rem] font-black italic text-2xl text-left border border-white/5 active:scale-95 transition-all">ARCHIVES →</button>
+    </div>
+  );
+}
+
+function Library({ recipes, onBack, onSelect }: any) {
+  return (
+    <div className="max-w-md mx-auto">
+      <button onClick={onBack} className="text-yellow-500 font-black text-[10px] mb-8 tracking-widest uppercase">← ACCUEIL</button>
+      <h2 className="text-5xl font-black italic text-yellow-500 mb-8 tracking-tighter uppercase font-black">RECETTES</h2>
+      {recipes.length === 0 && <div className="text-zinc-800 font-black italic py-20 text-center border-2 border-dashed border-zinc-900 rounded-3xl tracking-widest">VIDE</div>}
+      {recipes.map((r: Recipe) => (
+        <div key={r.id} onClick={() => onSelect(r)} className="bg-zinc-900 p-6 rounded-3xl mb-3 flex justify-between items-center cursor-pointer border border-transparent active:border-yellow-500/30 transition-all">
+          <span className="font-black italic text-xl uppercase tracking-tighter">{r.name}</span>
+          <span className="text-yellow-500 text-[10px] font-black tracking-widest">VOIR</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Detail({ recipe, onBack }: { recipe: Recipe | null, onBack: () => void }) {
+  if (!recipe) return null;
+  return (
+    <div className="max-w-md mx-auto pb-10">
+      <button onClick={onBack} className="text-yellow-500 font-black mb-8 block text-[10px] tracking-widest uppercase opacity-70">← RETOUR</button>
+      <h2 className="text-6xl font-black italic text-yellow-500 mb-10 leading-none uppercase tracking-tighter">{recipe.name}</h2>
+      <div className="space-y-1">
+        {recipe.steps.map((s) => (
+          <StepTimer key={s.id} step={s} />
+        ))}
+      </div>
     </div>
   );
 }
