@@ -21,7 +21,7 @@ interface Recipe {
   steps: Step[];
 }
 
-const STORAGE_KEY = "BREW_MASTER_FR_DATA";
+const STORAGE_KEY = "BREW_MASTER_FR_FINAL";
 
 export default function BrewMasterV4() {
   const [view, setView] = useState<"home" | "create" | "library" | "detail">("home");
@@ -48,7 +48,6 @@ export default function BrewMasterV4() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0b] text-zinc-100 font-sans uppercase selection:bg-[#ff5f1f] selection:text-white relative overflow-x-hidden">
-      {/* EFFET DE GRILLE TECHNIQUE */}
       <div className="fixed inset-0 opacity-[0.03] pointer-events-none" 
            style={{ backgroundImage: `radial-gradient(#ffffff 1px, transparent 1px)`, backgroundSize: '24px 24px' }} />
       
@@ -98,6 +97,14 @@ function Lab({ onSave, onCancel }: any) {
     setSteps([...steps, { id: "step-" + Date.now(), type: "PALIER", title: "", target: "", value: "10" }]);
   };
 
+  const onDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+    const items = Array.from(steps);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+    setSteps(items);
+  };
+
   return (
     <div className="max-w-md mx-auto pb-44 animate-in fade-in duration-500">
       <header className="flex justify-between items-center mb-12 border-b border-zinc-900 pb-4">
@@ -115,74 +122,93 @@ function Lab({ onSave, onCancel }: any) {
         />
       </div>
 
-      <div className="space-y-20">
-        {steps.map((s, i) => (
-          <div key={s.id} className="relative pl-6 border-l-2 border-zinc-900 focus-within:border-[#ff5f1f] transition-colors">
-            {/* SÉLECTEUR DE TYPE */}
-            <div className="flex gap-4 mb-8">
-              {["PALIER", "ACTION"].map((type) => (
-                <button
-                  key={type}
-                  onClick={() => updateStep(i, "type", type)}
-                  className={`text-[9px] font-bold tracking-widest px-4 py-1 skew-x-[-15deg] transition-all ${s.type === type ? 'bg-[#ff5f1f] text-white' : 'bg-zinc-900 text-zinc-600'}`}
-                >
-                  <span className="skew-x-[15deg] block">{type}</span>
-                </button>
-              ))}
-              <button onClick={() => setSteps(steps.filter((_, idx) => idx !== i))} className="ml-auto text-zinc-800 hover:text-red-500">✕</button>
-            </div>
+      <DragDropContext onDragEnd={onDragEnd}>
+        <Droppable droppableId="steps">
+          {(provided) => (
+            <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-12">
+              {steps.map((s, i) => (
+                <Draggable key={s.id} draggableId={s.id} index={i}>
+                  {(provided, snapshot) => (
+                    <div 
+                      ref={provided.innerRef} 
+                      {...provided.draggableProps}
+                      className={`relative pl-6 border-l-2 transition-all ${snapshot.isDragging ? 'border-[#ff5f1f] bg-zinc-900/80 scale-105 z-50 shadow-2xl' : 'border-zinc-900 focus-within:border-[#ff5f1f]'}`}
+                    >
+                      {/* ZONE DE GRAPIN POUR LE DRAG */}
+                      <div {...provided.dragHandleProps} className="absolute -left-3 top-0 text-zinc-800 hover:text-[#ff5f1f] cursor-grab active:cursor-grabbing">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="9" r="1.5"/><circle cx="9" cy="15" r="1.5"/><circle cx="15" cy="9" r="1.5"/><circle cx="15" cy="15" r="1.5"/></svg>
+                      </div>
 
-            <div className="space-y-8">
-              <input 
-                className="w-full bg-transparent border-b border-zinc-900 focus:border-[#ff5f1f] pb-2 text-xl font-bold outline-none transition-all placeholder:text-zinc-800" 
-                placeholder="NOM_DE_L'ÉTAPE"
-                value={s.title} 
-                onChange={e => updateStep(i, "title", e.target.value.toUpperCase())} 
-              />
+                      <div className="flex gap-4 mb-8">
+                        {["PALIER", "ACTION"].map((type) => (
+                          <button
+                            key={type}
+                            onClick={() => updateStep(i, "type", type)}
+                            className={`text-[9px] font-bold tracking-widest px-4 py-1 skew-x-[-15deg] transition-all ${s.type === type ? 'bg-[#ff5f1f] text-white' : 'bg-zinc-900 text-zinc-600'}`}
+                          >
+                            <span className="skew-x-[15deg] block">{type}</span>
+                          </button>
+                        ))}
+                        <button onClick={() => setSteps(steps.filter((_, idx) => idx !== i))} className="ml-auto text-zinc-800 hover:text-red-500">✕</button>
+                      </div>
 
-              {s.type === "ACTION" ? (
-                <div className="space-y-6">
-                  <div className="flex flex-wrap gap-2">
-                    {["FILTRATION", "WHIRLPOOL", "INGRÉDIENT", "AUTRE"].map((act) => (
-                      <button
-                        key={act}
-                        onClick={() => updateStep(i, "actionType", act)}
-                        className={`text-[8px] font-bold p-2 border transition-all ${s.actionType === act ? 'border-[#3b82f6] text-[#3b82f6] bg-[#3b82f6]/5' : 'border-zinc-900 text-zinc-600'}`}
-                      >
-                        {act}
-                      </button>
-                    ))}
-                  </div>
+                      <div className="space-y-8 pb-8">
+                        <input 
+                          className="w-full bg-transparent border-b border-zinc-900 focus:border-[#ff5f1f] pb-2 text-xl font-bold outline-none transition-all placeholder:text-zinc-800" 
+                          placeholder="NOM_DE_L'ÉTAPE"
+                          value={s.title} 
+                          onChange={e => updateStep(i, "title", e.target.value.toUpperCase())} 
+                        />
 
-                  {s.actionType === "INGRÉDIENT" && (
-                    <div className="grid grid-cols-2 gap-4 bg-zinc-900/30 p-4 border border-zinc-900 animate-in zoom-in-95">
-                      <input className="bg-transparent border-b border-zinc-800 p-2 text-xs font-mono outline-none focus:border-[#ff5f1f]" placeholder="NOM" value={s.ingredientName || ""} onChange={e => updateStep(i, "ingredientName", e.target.value.toUpperCase())} />
-                      <input className="bg-transparent border-b border-zinc-800 p-2 text-xs font-mono outline-none focus:border-[#ff5f1f]" placeholder="QUANTITÉ" value={s.ingredientQty || ""} onChange={e => updateStep(i, "ingredientQty", e.target.value.toUpperCase())} />
+                        {s.type === "ACTION" ? (
+                          <div className="space-y-6">
+                            <div className="flex flex-wrap gap-2">
+                              {["FILTRATION", "WHIRLPOOL", "INGRÉDIENT", "AUTRE"].map((act) => (
+                                <button
+                                  key={act}
+                                  onClick={() => updateStep(i, "actionType", act)}
+                                  className={`text-[8px] font-bold p-2 border transition-all ${s.actionType === act ? 'border-[#3b82f6] text-[#3b82f6] bg-[#3b82f6]/5' : 'border-zinc-900 text-zinc-600'}`}
+                                >
+                                  {act}
+                                </button>
+                              ))}
+                            </div>
+
+                            {s.actionType === "INGRÉDIENT" && (
+                              <div className="grid grid-cols-2 gap-4 bg-zinc-900/30 p-4 border border-zinc-900 animate-in zoom-in-95">
+                                <input className="bg-transparent border-b border-zinc-800 p-2 text-xs font-mono outline-none focus:border-[#ff5f1f]" placeholder="NOM" value={s.ingredientName || ""} onChange={e => updateStep(i, "ingredientName", e.target.value.toUpperCase())} />
+                                <input className="bg-transparent border-b border-zinc-800 p-2 text-xs font-mono outline-none focus:border-[#ff5f1f]" placeholder="QUANTITÉ" value={s.ingredientQty || ""} onChange={e => updateStep(i, "ingredientQty", e.target.value.toUpperCase())} />
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-12">
+                            <div className="relative">
+                              <span className="absolute -top-4 left-0 text-[8px] font-bold text-zinc-600 tracking-tighter">TEMPÉRATURE_CIBLE</span>
+                              <input className="w-full bg-transparent border-b border-zinc-900 py-2 text-2xl font-mono text-[#3b82f6] outline-none" placeholder="00°C" value={s.target} onChange={e => updateStep(i, "target", e.target.value)} />
+                            </div>
+                            <div className="relative">
+                              <span className="absolute -top-4 left-0 text-[8px] font-bold text-zinc-600 tracking-tighter">DURÉE_MINUTES</span>
+                              <input className="w-full bg-transparent border-b border-zinc-900 py-2 text-2xl font-mono text-[#ff5f1f] outline-none" placeholder="00" type="number" value={s.value} onChange={e => updateStep(i, "value", e.target.value)} />
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-12">
-                  <div className="relative">
-                    <span className="absolute -top-4 left-0 text-[8px] font-bold text-zinc-600 tracking-tighter">TEMPÉRATURE_CIBLE</span>
-                    <input className="w-full bg-transparent border-b border-zinc-900 py-2 text-2xl font-mono text-[#3b82f6] outline-none" placeholder="00°C" value={s.target} onChange={e => updateStep(i, "target", e.target.value)} />
-                  </div>
-                  <div className="relative">
-                    <span className="absolute -top-4 left-0 text-[8px] font-bold text-zinc-600 tracking-tighter">DURÉE_MINUTES</span>
-                    <input className="w-full bg-transparent border-b border-zinc-900 py-2 text-2xl font-mono text-[#ff5f1f] outline-none" placeholder="00" type="number" value={s.value} onChange={e => updateStep(i, "value", e.target.value)} />
-                  </div>
-                </div>
-              )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
             </div>
-          </div>
-        ))}
-        
-        <button onClick={addStep} className="w-full py-10 border-2 border-dashed border-zinc-900 text-zinc-700 hover:text-zinc-400 hover:border-zinc-700 transition-all font-bold text-[10px] tracking-[0.5em]">
-          + AJOUTER_UNE_ÉTAPE
-        </button>
-      </div>
+          )}
+        </Droppable>
+      </DragDropContext>
+      
+      <button onClick={addStep} className="w-full py-10 mt-12 border-2 border-dashed border-zinc-900 text-zinc-700 hover:text-zinc-400 hover:border-zinc-700 transition-all font-bold text-[10px] tracking-[0.5em]">
+        + AJOUTER_UNE_ÉTAPE
+      </button>
 
-      <div className="fixed bottom-0 left-0 right-0 p-8 bg-[#0a0a0b]/80 backdrop-blur-md border-t border-zinc-900">
+      <div className="fixed bottom-0 left-0 right-0 p-8 bg-[#0a0a0b]/80 backdrop-blur-md border-t border-zinc-900 z-50">
         <button 
           onClick={() => name && onSave({ id: Date.now(), name, steps })} 
           className={`w-full max-w-md mx-auto block py-5 bg-[#ff5f1f] text-white font-black italic text-xl transition-all shadow-[4px_4px_0px_#8b3211] active:translate-x-1 active:translate-y-1 active:shadow-none ${!name && 'opacity-20 grayscale'}`}
