@@ -1,7 +1,22 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
+import { DragDropContext, Droppable, Draggable, DropResult, DroppableProps } from "@hello-pangea/dnd";
+
+// --- COMPOSANT DE SÉCURITÉ POUR REACT 18+ ---
+// Ce composant remplace le Droppable classique pour éviter le bug du "marche pô"
+export const StrictModeDroppable = ({ children, ...props }: DroppableProps) => {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    const animation = requestAnimationFrame(() => setEnabled(true));
+    return () => {
+      cancelAnimationFrame(animation);
+      setEnabled(false);
+    };
+  }, []);
+  if (!enabled) return null;
+  return <Droppable {...props}>{children}</Droppable>;
+};
 
 // --- TYPES ---
 interface Step {
@@ -21,7 +36,7 @@ interface Recipe {
   steps: Step[];
 }
 
-const STORAGE_KEY = "BREW_MASTER_FR_FINAL";
+const STORAGE_KEY = "BREW_MASTER_FR_V4_STRICT";
 
 export default function BrewMasterV4() {
   const [view, setView] = useState<"home" | "create" | "library" | "detail">("home");
@@ -94,7 +109,9 @@ function Lab({ onSave, onCancel }: any) {
   };
 
   const addStep = () => {
-    setSteps([...steps, { id: "step-" + Date.now(), type: "PALIER", title: "", target: "", value: "10" }]);
+    // Utilisation d'un ID unique plus robuste pour éviter les doublons lors du drag
+    const newId = `step-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    setSteps([...steps, { id: newId, type: "PALIER", title: "", target: "", value: "10" }]);
   };
 
   const onDragEnd = (result: DropResult) => {
@@ -108,7 +125,7 @@ function Lab({ onSave, onCancel }: any) {
   return (
     <div className="max-w-md mx-auto pb-44 animate-in fade-in duration-500">
       <header className="flex justify-between items-center mb-12 border-b border-zinc-900 pb-4">
-        <button onClick={onCancel} className="text-[9px] font-bold text-zinc-500 hover:text-[#ff5f1f] tracking-widest transition-colors">ANNULER</button>
+        <button onClick={onCancel} className="text-[9px] font-bold text-zinc-500 hover:text-[#ff5f1f] tracking-widest transition-colors cursor-pointer">ANNULER</button>
         <span className="text-[9px] font-bold text-[#ff5f1f] tracking-[0.3em]">ÉDITEUR_DE_RECETTE</span>
       </header>
 
@@ -123,7 +140,7 @@ function Lab({ onSave, onCancel }: any) {
       </div>
 
       <DragDropContext onDragEnd={onDragEnd}>
-        <Droppable droppableId="steps">
+        <StrictModeDroppable droppableId="steps-list">
           {(provided) => (
             <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-12">
               {steps.map((s, i) => (
@@ -132,30 +149,30 @@ function Lab({ onSave, onCancel }: any) {
                     <div 
                       ref={provided.innerRef} 
                       {...provided.draggableProps}
-                      className={`relative pl-6 border-l-2 transition-all ${snapshot.isDragging ? 'border-[#ff5f1f] bg-zinc-900/80 scale-105 z-50 shadow-2xl' : 'border-zinc-900 focus-within:border-[#ff5f1f]'}`}
+                      className={`relative pl-8 border-l-2 transition-all duration-200 ${snapshot.isDragging ? 'border-[#ff5f1f] bg-zinc-900/90 scale-[1.02] z-50 shadow-2xl' : 'border-zinc-800 focus-within:border-[#ff5f1f]'}`}
                     >
-                      {/* ZONE DE GRAPIN POUR LE DRAG */}
-                      <div {...provided.dragHandleProps} className="absolute -left-3 top-0 text-zinc-800 hover:text-[#ff5f1f] cursor-grab active:cursor-grabbing">
+                      {/* POIGNÉE DE DRAG */}
+                      <div {...provided.dragHandleProps} className="absolute -left-3 top-0 text-zinc-700 hover:text-[#ff5f1f] p-2 cursor-grab active:cursor-grabbing">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="9" r="1.5"/><circle cx="9" cy="15" r="1.5"/><circle cx="15" cy="9" r="1.5"/><circle cx="15" cy="15" r="1.5"/></svg>
                       </div>
 
-                      <div className="flex gap-4 mb-8">
+                      <div className="flex gap-3 mb-8">
                         {["PALIER", "ACTION"].map((type) => (
                           <button
                             key={type}
-                            onClick={() => updateStep(i, "type", type)}
+                            onClick={() => updateStep(i, "type", type as any)}
                             className={`text-[9px] font-bold tracking-widest px-4 py-1 skew-x-[-15deg] transition-all ${s.type === type ? 'bg-[#ff5f1f] text-white' : 'bg-zinc-900 text-zinc-600'}`}
                           >
                             <span className="skew-x-[15deg] block">{type}</span>
                           </button>
                         ))}
-                        <button onClick={() => setSteps(steps.filter((_, idx) => idx !== i))} className="ml-auto text-zinc-800 hover:text-red-500">✕</button>
+                        <button onClick={() => setSteps(steps.filter((_, idx) => idx !== i))} className="ml-auto text-zinc-800 hover:text-red-600 transition-colors">✕</button>
                       </div>
 
-                      <div className="space-y-8 pb-8">
+                      <div className="space-y-8 pb-4">
                         <input 
                           className="w-full bg-transparent border-b border-zinc-900 focus:border-[#ff5f1f] pb-2 text-xl font-bold outline-none transition-all placeholder:text-zinc-800" 
-                          placeholder="NOM_DE_L'ÉTAPE"
+                          placeholder="LIBELLÉ_DE_L'ÉTAPE"
                           value={s.title} 
                           onChange={e => updateStep(i, "title", e.target.value.toUpperCase())} 
                         />
@@ -166,7 +183,7 @@ function Lab({ onSave, onCancel }: any) {
                               {["FILTRATION", "WHIRLPOOL", "INGRÉDIENT", "AUTRE"].map((act) => (
                                 <button
                                   key={act}
-                                  onClick={() => updateStep(i, "actionType", act)}
+                                  onClick={() => updateStep(i, "actionType", act as any)}
                                   className={`text-[8px] font-bold p-2 border transition-all ${s.actionType === act ? 'border-[#3b82f6] text-[#3b82f6] bg-[#3b82f6]/5' : 'border-zinc-900 text-zinc-600'}`}
                                 >
                                   {act}
@@ -176,8 +193,8 @@ function Lab({ onSave, onCancel }: any) {
 
                             {s.actionType === "INGRÉDIENT" && (
                               <div className="grid grid-cols-2 gap-4 bg-zinc-900/30 p-4 border border-zinc-900 animate-in zoom-in-95">
-                                <input className="bg-transparent border-b border-zinc-800 p-2 text-xs font-mono outline-none focus:border-[#ff5f1f]" placeholder="NOM" value={s.ingredientName || ""} onChange={e => updateStep(i, "ingredientName", e.target.value.toUpperCase())} />
-                                <input className="bg-transparent border-b border-zinc-800 p-2 text-xs font-mono outline-none focus:border-[#ff5f1f]" placeholder="QUANTITÉ" value={s.ingredientQty || ""} onChange={e => updateStep(i, "ingredientQty", e.target.value.toUpperCase())} />
+                                <input className="bg-transparent border-b border-zinc-800 p-2 text-xs font-mono outline-none focus:border-[#ff5f1f]" placeholder="QUOI ?" value={s.ingredientName || ""} onChange={e => updateStep(i, "ingredientName", e.target.value.toUpperCase())} />
+                                <input className="bg-transparent border-b border-zinc-800 p-2 text-xs font-mono outline-none focus:border-[#ff5f1f]" placeholder="COMBIEN ?" value={s.ingredientQty || ""} onChange={e => updateStep(i, "ingredientQty", e.target.value.toUpperCase())} />
                               </div>
                             )}
                           </div>
@@ -185,11 +202,11 @@ function Lab({ onSave, onCancel }: any) {
                           <div className="grid grid-cols-2 gap-12">
                             <div className="relative">
                               <span className="absolute -top-4 left-0 text-[8px] font-bold text-zinc-600 tracking-tighter">TEMPÉRATURE_CIBLE</span>
-                              <input className="w-full bg-transparent border-b border-zinc-900 py-2 text-2xl font-mono text-[#3b82f6] outline-none" placeholder="00°C" value={s.target} onChange={e => updateStep(i, "target", e.target.value)} />
+                              <input className="w-full bg-transparent border-b border-zinc-800 py-2 text-2xl font-mono text-[#3b82f6] outline-none focus:border-[#3b82f6]" placeholder="00°C" value={s.target} onChange={e => updateStep(i, "target", e.target.value)} />
                             </div>
                             <div className="relative">
                               <span className="absolute -top-4 left-0 text-[8px] font-bold text-zinc-600 tracking-tighter">DURÉE_MINUTES</span>
-                              <input className="w-full bg-transparent border-b border-zinc-900 py-2 text-2xl font-mono text-[#ff5f1f] outline-none" placeholder="00" type="number" value={s.value} onChange={e => updateStep(i, "value", e.target.value)} />
+                              <input className="w-full bg-transparent border-b border-zinc-800 py-2 text-2xl font-mono text-[#ff5f1f] outline-none focus:border-[#ff5f1f]" placeholder="00" type="number" value={s.value} onChange={e => updateStep(i, "value", e.target.value)} />
                             </div>
                           </div>
                         )}
@@ -201,14 +218,14 @@ function Lab({ onSave, onCancel }: any) {
               {provided.placeholder}
             </div>
           )}
-        </Droppable>
+        </StrictModeDroppable>
       </DragDropContext>
       
       <button onClick={addStep} className="w-full py-10 mt-12 border-2 border-dashed border-zinc-900 text-zinc-700 hover:text-zinc-400 hover:border-zinc-700 transition-all font-bold text-[10px] tracking-[0.5em]">
         + AJOUTER_UNE_ÉTAPE
       </button>
 
-      <div className="fixed bottom-0 left-0 right-0 p-8 bg-[#0a0a0b]/80 backdrop-blur-md border-t border-zinc-900 z-50">
+      <div className="fixed bottom-0 left-0 right-0 p-8 bg-[#0a0a0b]/90 backdrop-blur-md border-t border-zinc-900 z-50">
         <button 
           onClick={() => name && onSave({ id: Date.now(), name, steps })} 
           className={`w-full max-w-md mx-auto block py-5 bg-[#ff5f1f] text-white font-black italic text-xl transition-all shadow-[4px_4px_0px_#8b3211] active:translate-x-1 active:translate-y-1 active:shadow-none ${!name && 'opacity-20 grayscale'}`}
@@ -264,7 +281,7 @@ function StepTimer({ step }: { step: Step }) {
   };
 
   return (
-    <div className={`p-8 border ${active ? 'border-[#ff5f1f] bg-[#ff5f1f]/5' : 'border-zinc-900 bg-zinc-900/20'} transition-all`}>
+    <div className={`p-8 border ${active ? 'border-[#ff5f1f] bg-[#ff5f1f]/5 shadow-[0_0_20px_rgba(255,95,31,0.1)]' : 'border-zinc-900 bg-zinc-900/20'} transition-all`}>
       <div className="flex justify-between items-start mb-8">
         <div>
           <span className="text-[9px] font-mono text-[#3b82f6] block mb-1">{step.target}</span>
@@ -278,7 +295,7 @@ function StepTimer({ step }: { step: Step }) {
         <button onClick={() => setActive(!active)} className={`py-4 font-bold text-[10px] tracking-widest transition-all ${active ? 'bg-zinc-100 text-black' : 'bg-[#ff5f1f] text-white'}`}>
           {active ? "PAUSE" : "LANCER"}
         </button>
-        <button onClick={() => setTimeLeft(getInitial())} className="py-4 border border-zinc-800 text-zinc-500 font-bold text-[10px] tracking-widest">RAZ</button>
+        <button onClick={() => setTimeLeft(getInitial())} className="py-4 border border-zinc-800 text-zinc-500 font-bold text-[10px] tracking-widest hover:border-zinc-400">RAZ</button>
       </div>
     </div>
   );
@@ -289,13 +306,13 @@ function Detail({ recipe, onBack }: any) {
   return (
     <div className="max-w-md mx-auto pb-20 animate-in fade-in duration-500">
       <header className="flex justify-between items-center mb-16 border-b border-zinc-900 pb-4">
-        <button onClick={onBack} className="text-[9px] font-bold text-zinc-600 tracking-widest">FERMER_LA_SESSION</button>
+        <button onClick={onBack} className="text-[9px] font-bold text-zinc-600 tracking-widest cursor-pointer hover:text-white">FERMER_LA_SESSION</button>
         <span className="flex items-center gap-2 text-[#ff5f1f] font-bold text-[9px] tracking-widest">
            BRASSAGE_EN_COURS <span className="w-1.5 h-1.5 bg-[#ff5f1f] rounded-full animate-pulse" />
         </span>
       </header>
       
-      <h2 className="text-5xl font-black italic mb-16 tracking-tighter text-white">{recipe.name}</h2>
+      <h2 className="text-5xl font-black italic mb-16 tracking-tighter text-white leading-none">{recipe.name}</h2>
       
       <div className="space-y-4">
         {recipe.steps.map((s: Step) => (
@@ -303,7 +320,7 @@ function Detail({ recipe, onBack }: any) {
             {s.type === "PALIER" ? (
               <StepTimer step={s} />
             ) : (
-              <div className="p-8 border border-zinc-900 flex justify-between items-center group bg-zinc-900/10">
+              <div className="p-8 border border-zinc-900 flex justify-between items-center group bg-zinc-900/10 hover:border-zinc-700 transition-colors">
                 <div>
                   <span className="text-[8px] font-bold text-[#3b82f6] tracking-widest block mb-1">{s.actionType}</span>
                   <div className="text-xl font-black italic">{s.title}</div>
@@ -327,23 +344,24 @@ function Library({ recipes, onBack, onSelect, onDelete }: any) {
   return (
     <div className="max-w-md mx-auto animate-in fade-in duration-500">
       <header className="flex justify-between items-center mb-16 border-b border-zinc-900 pb-4">
-        <button onClick={onBack} className="text-[9px] font-bold text-zinc-500 tracking-widest uppercase">← RETOUR</button>
+        <button onClick={onBack} className="text-[9px] font-bold text-zinc-500 tracking-widest uppercase cursor-pointer hover:text-white">← RETOUR</button>
         <span className="text-[9px] font-bold text-zinc-800 tracking-widest">ARCHIVES_RECETTES</span>
       </header>
       
       <div className="space-y-4">
         {recipes.length === 0 ? (
-          <div className="py-20 text-center text-zinc-800 font-bold text-[10px] tracking-widest italic uppercase">AUCUNE RECETTE ENREGISTRÉE</div>
+          <div className="py-20 text-center text-zinc-800 font-bold text-[10px] tracking-widest italic uppercase border-2 border-dashed border-zinc-900">AUCUNE RECETTE ENREGISTRÉE</div>
         ) : (
           recipes.map((r: Recipe) => (
-            <div key={r.id} className="group relative bg-zinc-900/20 border border-zinc-900 p-8 hover:border-[#ff5f1f]/30 transition-all">
+            <div key={r.id} className="group relative bg-zinc-900/20 border border-zinc-900 p-8 hover:border-[#ff5f1f]/30 transition-all cursor-pointer overflow-hidden">
+              <div className="absolute top-0 right-0 w-16 h-16 bg-zinc-800/20 rotate-45 translate-x-8 -translate-y-8" />
               <button onClick={() => onSelect(r)} className="w-full text-left">
                 <span className="block text-[8px] text-zinc-600 font-bold mb-1 tracking-widest">{r.steps.length} ÉTAPES DANS LA SEQUENCE</span>
                 <span className="text-3xl font-black italic tracking-tighter text-white group-hover:text-[#ff5f1f] transition-colors">{r.name}</span>
               </button>
               <button 
                 onClick={() => confirm("Supprimer définitivement cette recette ?") && onDelete(r.id)} 
-                className="absolute top-4 right-4 text-[8px] font-bold text-red-900 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                className="absolute bottom-4 right-8 text-[8px] font-bold text-red-900 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
               >
                 SUPPRIMER
               </button>
