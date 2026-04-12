@@ -36,8 +36,6 @@ export default function CreatorPage() {
       setStats({ abv: 0, ebc: 0 });
       return;
     }
-
-    // Calcul EBC (Formule de Morey)
     const volGal = recipe.volume * 0.264172;
     let totalMCU = 0;
     recipe.malts.forEach(m => {
@@ -47,8 +45,6 @@ export default function CreatorPage() {
     });
     const srm = 1.4922 * Math.pow(totalMCU, 0.6859);
     const ebc = srm * 1.97;
-
-    // Calcul ABV (Alcool)
     let points = 0;
     recipe.malts.forEach(m => {
       points += (m.qty * 300 * (m.yield / 100) * (recipe.efficiency / 100));
@@ -56,7 +52,6 @@ export default function CreatorPage() {
     const og = 1 + (points / recipe.volume) / 1000;
     const fg = 1 + (og - 1) * 0.25; 
     const abv = (og - fg) * 131.25;
-
     setStats({ ebc: Math.round(ebc), abv: parseFloat(abv.toFixed(1)) });
   };
 
@@ -88,14 +83,25 @@ export default function CreatorPage() {
 
   return (
     <div style={{ padding: '30px', backgroundColor: '#0f0f0f', color: '#fff', minHeight: '100vh', fontFamily: 'sans-serif' }}>
+      
+      {/* STYLE POUR VIRER LES FLECHES +/- */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        input[type=number] {
+          -moz-appearance: textfield;
+        }
+      `}} />
+
       <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
         <h1 style={{ color: '#f39c12', textAlign: 'center', marginBottom: '40px' }}>🧪 L'Alchimiste - Créateur</h1>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '30px' }}>
           
-          {/* PANNEAU DE SAISIE */}
           <section>
-            {/* CONFIGURATION GENERALE */}
             <div style={{ background: '#1a1a1a', padding: '20px', borderRadius: '12px', marginBottom: '20px', display: 'flex', gap: '30px' }}>
               <div>
                 <label style={labelStyle}>Volume Brassin</label>
@@ -113,14 +119,13 @@ export default function CreatorPage() {
               </div>
             </div>
 
-            {/* LISTE DES INGREDIENTS */}
             <div style={{ background: '#1a1a1a', padding: '20px', borderRadius: '12px' }}>
               <h3 style={{ marginTop: 0 }}>Grains et Sucres</h3>
               {recipe.malts.map((m, i) => (
                 <div key={i} style={{ display: 'flex', gap: '15px', marginBottom: '15px', alignItems: 'flex-end' }}>
                   <div style={{ flex: 2 }}>
                     <label style={labelStyle}>Type de grain</label>
-                    <select value={m.name} onChange={e => updateMalt(i, 'name', e.target.value)} style={{...inputStyle, width: '100%'}}>
+                    <select value={m.name} onChange={e => updateMalt(i, 'name', e.target.value)} style={{...inputStyle, width: '100%', textAlign: 'left', paddingLeft: '10px'}}>
                       {MALT_DATABASE.map(ref => <option key={ref.name} value={ref.name}>{ref.name}</option>)}
                     </select>
                   </div>
@@ -148,35 +153,30 @@ export default function CreatorPage() {
             </div>
           </section>
 
-          {/* PANNEAU RESULTATS (FIXE AU SCROLL) */}
           <section style={{ position: 'sticky', top: '30px', height: 'fit-content', background: '#1a1a1a', padding: '30px', borderRadius: '15px', textAlign: 'center' }}>
              <h2 style={{ color: '#888', fontSize: '12px', letterSpacing: '2px', marginBottom: '20px' }}>RÉSULTAT ESTIMÉ</h2>
-             
              <div style={{ 
                 width: '120px', height: '160px', margin: '0 auto 20px',
                 backgroundColor: getBeerColor(stats.ebc), borderRadius: '10px 10px 40px 40px',
                 border: '5px solid #333', boxShadow: `0 0 40px ${getBeerColor(stats.ebc)}44`
              }} />
-
              <div style={{ fontSize: '4rem', fontWeight: '900', color: '#f39c12', lineHeight: '1' }}>{stats.abv}%</div>
              <div style={{ color: '#888', marginTop: '5px' }}>Alcool (ABV)</div>
-
              <div style={{ marginTop: '30px', borderTop: '1px solid #333', paddingTop: '20px' }}>
                 <div style={{ fontSize: '1.8rem', fontWeight: 'bold' }}>{stats.ebc} EBC</div>
                 <div style={{ color: '#888', fontSize: '0.9rem' }}>Couleur finale</div>
              </div>
           </section>
-
         </div>
       </div>
     </div>
   );
 }
 
-// Styles réutilisables
+// Styles
 const labelStyle = { display: 'block', fontSize: '11px', color: '#666', textTransform: 'uppercase', marginBottom: '5px', fontWeight: 'bold' };
 const inputGroupStyle = { display: 'flex', alignItems: 'center', background: '#2a2a2a', borderRadius: '6px', border: '1px solid #444', overflow: 'hidden' };
-const inputStyle = { background: 'transparent', color: '#fff', border: 'none', padding: '10px', width: '100%', outline: 'none', textAlign: 'right' };
+const inputStyle = { background: 'transparent', color: '#fff', border: 'none', padding: '10px', width: '100%', outline: 'none', textAlign: 'center' };
 const unitStyle = { background: '#333', padding: '10px', fontSize: '12px', color: '#aaa', minWidth: '35px', textAlign: 'center' };
 const addButtonStyle = { width: '100%', padding: '12px', background: '#f39c12', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', marginTop: '10px', color: '#000' };
 
