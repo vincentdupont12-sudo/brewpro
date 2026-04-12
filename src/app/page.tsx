@@ -1,9 +1,28 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabaseClient";
 
 const STORAGE_KEY = "BREW_MASTER_V15_LOCAL";
+
+// --- TYPES (Pour calmer TypeScript) ---
+interface Step {
+  id: string;
+  title: string;
+  instruction: string;
+  target: string;
+  value: string;
+  ingredients: string;
+}
+
+interface Recipe {
+  id: string;
+  created_at: string;
+  name: string;
+  eauE: string;
+  eauR: string;
+  steps: Step[];
+}
 
 // --- COMPOSANT TIMER ---
 function Timer({ minutes, stepId }: { minutes: number; stepId: string }) {
@@ -42,12 +61,11 @@ function Timer({ minutes, stepId }: { minutes: number; stepId: string }) {
 
 // --- COMPOSANT PRINCIPAL ---
 export default function BrewMaster() {
-  const [view, setView] = useState<"home" | "create" | "library" | "detail">("home");
-  const [recipes, setRecipes] = useState<any[]>([]);
-  const [selected, setSelected] = useState<any>(null);
+  const [view, setView] = useState<string>("home");
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [selected, setSelected] = useState<Recipe | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // CHARGEMENT
   useEffect(() => { fetchRecipes(); }, []);
 
   const fetchRecipes = async () => {
@@ -60,11 +78,10 @@ export default function BrewMaster() {
 
       if (error) throw error;
 
-      // MAPPING CRUCIAL : On extrait le contenu de 'data' pour le mettre à la racine de l'objet
       const formatted = (data || []).map(row => ({
         id: row.id,
         created_at: row.created_at,
-        ...row.data // Ceci permet d'avoir r.name, r.eauE, r.steps directement
+        ...row.data 
       }));
 
       setRecipes(formatted);
@@ -111,13 +128,13 @@ export default function BrewMaster() {
         {/* VIEW: HOME */}
         {view === "home" && (
           <div className="pt-32 text-center animate-in fade-in duration-1000">
-            <h1 className="text-[80px] font-black text-white leading-[0.8] mb-4 tracking-tighter">BREW<br/><span className="text-yellow-500">MASTER</span></h1>
-            <p className="text-[9px] text-zinc-800 tracking-[0.5em] mb-20 font-black">CORE_SYSTEM_V.1.5_ONLINE</p>
+            <h1 className="text-[80px] font-black text-white leading-[0.8] mb-4 tracking-tighter italic">BREW<br/><span className="text-yellow-500">MASTER</span></h1>
+            <p className="text-[9px] text-zinc-800 tracking-[0.5em] mb-20 font-black uppercase">CORE_SYSTEM_V.1.5_ONLINE</p>
             <div className="flex flex-col gap-4 max-w-xs mx-auto">
-              <button onClick={() => setView("create")} className="bg-white text-black p-6 font-black text-xl hover:bg-yellow-500 transition-all flex justify-between items-center">
+              <button onClick={() => setView("create")} className="bg-white text-black p-6 font-black text-xl hover:bg-yellow-500 transition-all flex justify-between items-center shadow-[0_0_20px_rgba(255,255,255,0.1)]">
                 <span>NEW_BATCH</span><span>[+]</span>
               </button>
-              <button onClick={() => setView("library")} className="border border-zinc-900 p-6 font-black text-zinc-700 hover:text-white flex justify-between items-center transition-all">
+              <button onClick={() => setView("library")} className="border border-zinc-900 p-6 font-black text-zinc-700 hover:text-white flex justify-between items-center transition-all hover:bg-zinc-900/30">
                 <span>RESOURCES</span><span>{">>"}</span>
               </button>
             </div>
@@ -129,21 +146,22 @@ export default function BrewMaster() {
 
         {/* VIEW: LIBRARY */}
         {view === "library" && (
-          <div className="animate-in fade-in slide-in-from-bottom-4">
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex justify-between items-center mb-12 border-b border-zinc-900 pb-4">
-              <button onClick={() => setView("home")} className="text-zinc-700 text-[10px] font-black hover:text-white tracking-widest">/ RETURN_HOME</button>
+              <button onClick={() => setView("home")} className="text-zinc-700 text-[10px] font-black hover:text-white tracking-widest transition-colors">/ RETURN_HOME</button>
               <span className="text-[8px] text-zinc-800 font-black tracking-widest">{loading ? "SYNCING..." : "DATABASE_LINK_OK"}</span>
             </div>
             <div className="space-y-4">
-              {recipes.map(r => (
-                <div key={r.id} className="flex border border-zinc-900 bg-zinc-950/40 hover:border-yellow-500/50 transition-all group">
-                  <button onClick={() => { setSelected(r); setView("detail"); }} className="flex-1 p-8 text-left">
+              {recipes.map((r) => (
+                <div key={r.id} className="flex border border-zinc-900 bg-zinc-950/40 hover:border-yellow-500/50 transition-all group overflow-hidden">
+                  <button onClick={() => { setSelected(r); setView("detail"); }} className="flex-1 p-8 text-left transition-all">
                     <span className="text-3xl font-black block leading-none group-hover:text-white uppercase tracking-tighter italic">{r.name || "UNNAMED_BATCH"}</span>
                     <span className="text-[8px] text-zinc-700 mt-2 block font-black uppercase">Ref_ID: {String(r.id).slice(0,8)}...</span>
                   </button>
-                  <button onClick={() => deleteRecipe(r.id)} className="px-6 text-zinc-900 hover:text-red-700 font-black transition-colors border-l border-zinc-900">X</button>
+                  <button onClick={() => deleteRecipe(r.id)} className="px-6 text-zinc-900 hover:text-red-700 font-black transition-colors border-l border-zinc-900 bg-zinc-950 hover:bg-red-950/10">X</button>
                 </div>
               ))}
+              {recipes.length === 0 && !loading && <p className="text-center text-zinc-800 py-20 font-black italic tracking-widest text-[10px]">NO_DATA_FOUND_IN_CLOUD</p>}
             </div>
           </div>
         )}
@@ -167,7 +185,7 @@ export default function BrewMaster() {
             </div>
 
             <div className="space-y-12">
-              {selected.steps?.map((s: any, i: number) => (
+              {selected.steps?.map((s: Step) => (
                 <div key={s.id} className="relative pl-8 border-l-2 border-zinc-800 pb-8">
                   <div className="absolute -left-[9px] top-0 w-4 h-4 bg-yellow-500 rounded-full border-4 border-[#050505]" />
                   <h3 className="text-2xl font-black text-yellow-500 mb-2 italic tracking-tight">{s.title || "UNTITLED_STEP"}</h3>
@@ -175,12 +193,12 @@ export default function BrewMaster() {
                   
                   {s.ingredients && (
                     <div className="bg-zinc-900/30 border border-zinc-900 p-4 mb-4 border-r-4 border-r-yellow-600">
-                      <pre className="text-[10px] font-black text-zinc-400 whitespace-pre-wrap uppercase tracking-tight">{s.ingredients}</pre>
+                      <pre className="text-[10px] font-black text-zinc-400 whitespace-pre-wrap uppercase tracking-tight font-mono">{s.ingredients}</pre>
                     </div>
                   )}
                   
-                  <div className="bg-black p-4 border border-zinc-800 inline-block">
-                    <span className="text-[7px] text-zinc-700 block mb-1 font-black tracking-widest uppercase italic">Target_Value</span>
+                  <div className="bg-black p-4 border border-zinc-800 inline-block min-w-[120px]">
+                    <span className="text-[7px] text-zinc-700 block mb-1 font-black tracking-widest uppercase italic font-mono">Target_Value</span>
                     <span className="text-xl font-black text-white italic">{s.target || "--"}</span>
                   </div>
 
@@ -196,20 +214,26 @@ export default function BrewMaster() {
 }
 
 // --- COMPOSANT LAB (CREATION) ---
-function Lab({ onSave, onCancel }: any) {
+function Lab({ onSave, onCancel }: { onSave: (r: any) => void; onCancel: () => void }) {
   const [name, setName] = useState("");
   const [eauE, setEauE] = useState("");
   const [eauR, setEauR] = useState("");
-  const [steps, setSteps] = useState<any[]>([]);
+  const [steps, setSteps] = useState<Step[]>([]);
 
   const addStep = () => setSteps([...steps, { id: Date.now().toString(), title: "", instruction: "", target: "", value: "", ingredients: "" }]);
 
+  const updateStep = (index: number, field: keyof Step, val: string) => {
+    const newSteps = [...steps];
+    newSteps[index] = { ...newSteps[index], [field]: val };
+    setSteps(newSteps);
+  };
+
   return (
-    <div className="pb-40 animate-in slide-in-from-bottom-12">
-      <button onClick={onCancel} className="text-red-900 text-[10px] font-black mb-10 tracking-widest hover:text-red-500 transition-colors">/ ABORT_MISSION</button>
+    <div className="pb-40 animate-in slide-in-from-bottom-12 duration-700">
+      <button onClick={onCancel} className="text-red-900 text-[10px] font-black mb-10 tracking-widest hover:text-red-500 transition-colors uppercase">/ ABORT_MISSION</button>
       
       <input 
-        className="w-full bg-transparent text-5xl font-black outline-none border-b border-zinc-900 mb-10 uppercase italic text-white placeholder:text-zinc-900" 
+        className="w-full bg-transparent text-5xl font-black outline-none border-b border-zinc-900 mb-10 uppercase italic text-white placeholder:text-zinc-900 focus:border-yellow-500 transition-colors" 
         placeholder="BATCH_NAME" 
         value={name} 
         onChange={e => setName(e.target.value)} 
@@ -217,46 +241,51 @@ function Lab({ onSave, onCancel }: any) {
 
       <div className="grid grid-cols-2 gap-6 mb-12">
         <div className="flex flex-col">
-          <label className="text-[8px] font-black mb-2 text-zinc-700 tracking-widest">EAU_EMPATHAGE (L)</label>
+          <label className="text-[8px] font-black mb-2 text-zinc-700 tracking-widest uppercase">EAU_EMPATHAGE (L)</label>
           <input className="bg-zinc-900/20 p-5 border border-zinc-900 text-2xl font-black outline-none text-blue-500 font-mono" placeholder="00.0" value={eauE} onChange={e => setEauE(e.target.value)} />
         </div>
         <div className="flex flex-col text-right">
-          <label className="text-[8px] font-black mb-2 text-zinc-700 tracking-widest">EAU_RINCAGE (L)</label>
+          <label className="text-[8px] font-black mb-2 text-zinc-700 tracking-widest uppercase">EAU_RINCAGE (L)</label>
           <input className="bg-zinc-900/20 p-5 border border-zinc-900 text-2xl font-black outline-none text-blue-500 font-mono text-right" placeholder="00.0" value={eauR} onChange={e => setEauR(e.target.value)} />
         </div>
       </div>
 
       <div className="space-y-8">
         {steps.map((s, i) => (
-          <div key={s.id} className="bg-zinc-900/10 border border-zinc-900 p-6 relative group">
-            <button onClick={() => setSteps(steps.filter((_, idx) => idx !== i))} className="absolute top-2 right-4 text-zinc-800 text-[9px] font-black hover:text-red-500 transition-colors">DELETE_SEQ</button>
-            <input className="w-full bg-transparent font-black text-yellow-500 text-2xl mb-4 outline-none border-b border-zinc-800/50 pb-2 italic uppercase" placeholder="SEQUENCE_TITLE" value={s.title} onChange={e => {
-              const n = [...steps]; n[i].title = e.target.value; setSteps(n);
-            }} />
-            <textarea className="w-full bg-transparent text-[11px] text-zinc-500 h-12 outline-none mb-4 italic" placeholder="Instructions_techniques..." value={s.instruction} onChange={e => {
-              const n = [...steps]; n[i].instruction = e.target.value; setSteps(n);
-            }} />
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <input className="bg-black p-4 text-xs border border-zinc-800 outline-none font-black text-white" placeholder="CIBLE (ex: 67°C)" value={s.target} onChange={e => {
-                const n = [...steps]; n[i].target = e.target.value; setSteps(n);
-              }} />
-              <input className="bg-black p-4 text-xs border border-zinc-800 outline-none font-black text-white" placeholder="TEMPS (MIN)" value={s.value} onChange={e => {
-                const n = [...steps]; n[i].value = e.target.value; setSteps(n);
-              }} />
+          <div key={s.id} className="bg-zinc-900/10 border border-zinc-900 p-6 relative group border-l-4 border-l-zinc-800 focus-within:border-l-yellow-500 transition-all">
+            <button onClick={() => setSteps(steps.filter((_, idx) => idx !== i))} className="absolute top-2 right-4 text-zinc-800 text-[9px] font-black hover:text-red-500 transition-colors uppercase">DELETE_SEQ</button>
+            
+            <input className="w-full bg-transparent font-black text-yellow-500 text-2xl mb-4 outline-none border-b border-zinc-800/50 pb-2 italic uppercase placeholder:text-zinc-800" placeholder="SEQUENCE_TITLE" value={s.title} onChange={e => updateStep(i, 'title', e.target.value)} />
+            
+            <textarea className="w-full bg-transparent text-[11px] text-zinc-500 h-12 outline-none mb-4 italic placeholder:text-zinc-800" placeholder="Instructions_techniques..." value={s.instruction} onChange={e => updateStep(i, 'instruction', e.target.value)} />
+            
+            <div className="grid grid-cols-2 gap-4 mb-4 font-mono">
+              <div className="flex flex-col">
+                 <span className="text-[7px] text-zinc-800 mb-1 font-black">TARGET_VALUE</span>
+                 <input className="bg-black p-4 text-xs border border-zinc-800 outline-none font-black text-white" placeholder="ex: 67°C" value={s.target} onChange={e => updateStep(i, 'target', e.target.value)} />
+              </div>
+              <div className="flex flex-col">
+                 <span className="text-[7px] text-zinc-800 mb-1 font-black">TIME (MIN)</span>
+                 <input className="bg-black p-4 text-xs border border-zinc-800 outline-none font-black text-white" placeholder="ex: 60" value={s.value} onChange={e => updateStep(i, 'value', e.target.value)} />
+              </div>
             </div>
-            <textarea className="w-full bg-zinc-950 p-4 text-[10px] h-20 outline-none border border-zinc-800 font-bold text-zinc-500 uppercase" placeholder="MALTS_HOUBLONS_ADDITIFS" value={s.ingredients} onChange={e => {
-              const n = [...steps]; n[i].ingredients = e.target.value; setSteps(n);
-            }} />
+            
+            <div className="flex flex-col font-mono">
+               <span className="text-[7px] text-zinc-800 mb-1 font-black uppercase">Ingredients_list</span>
+               <textarea className="w-full bg-zinc-950 p-4 text-[10px] h-20 outline-none border border-zinc-800 font-bold text-zinc-500 uppercase placeholder:text-zinc-900" placeholder="MALTS_HOUBLONS_ADDITIFS" value={s.ingredients} onChange={e => updateStep(i, 'ingredients', e.target.value)} />
+            </div>
           </div>
         ))}
-        <button onClick={addStep} className="w-full py-10 border-2 border-dashed border-zinc-900 text-zinc-800 font-black hover:text-zinc-500 hover:border-zinc-700 transition-all uppercase tracking-widest text-xs">
+        
+        <button onClick={addStep} className="w-full py-10 border-2 border-dashed border-zinc-900 text-zinc-800 font-black hover:text-zinc-500 hover:border-zinc-700 transition-all uppercase tracking-widest text-xs hover:bg-zinc-950">
           + APPEND_NEW_SEQUENCE
         </button>
       </div>
 
       <button 
         onClick={() => name && onSave({ name, eauE, eauR, steps })} 
-        className={`fixed bottom-8 left-4 right-4 max-w-xl mx-auto py-8 font-black tracking-[0.6em] z-50 transition-all text-xs ${name ? 'bg-yellow-500 text-black shadow-[0_20px_50px_rgba(234,179,8,0.3)]' : 'bg-zinc-900 text-zinc-700 cursor-not-allowed'}`}
+        className={`fixed bottom-8 left-4 right-4 max-w-xl mx-auto py-8 font-black tracking-[0.6em] z-50 transition-all text-xs uppercase ${name ? 'bg-yellow-500 text-black shadow-[0_20px_50px_rgba(234,179,8,0.3)]' : 'bg-zinc-900 text-zinc-700 cursor-not-allowed'}`}
+        disabled={!name}
       >
         PUSH_TO_CLOUD_DATABASE
       </button>
