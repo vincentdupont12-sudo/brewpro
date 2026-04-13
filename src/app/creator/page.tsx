@@ -29,7 +29,7 @@ export default function CreatorPage() {
     fg: 1.0,
   });
 
-  // --- CHARGEMENT DES RÉFÉRENCES (DB -> SIMULATEUR) ---
+  // --- CHARGEMENT DES RÉFÉRENCES ---
   useEffect(() => {
     const fetchRefs = async () => {
       const { data } = await supabase.from("ingredient_refs").select("*");
@@ -40,15 +40,13 @@ export default function CreatorPage() {
 
   const maltOptions = dbIngredients.filter((i) => i.type?.toUpperCase() === "MALT");
   const hopOptions = dbIngredients.filter((i) => i.type?.toUpperCase() === "HOP");
-  const saltOptions = dbIngredients.filter((i) => i.type?.toUpperCase() === "SALT");
 
-  // --- CALCULS SCIENTIFIQUES (EFFET DE BORD) ---
+  // --- CALCULS ---
   useEffect(() => {
     const volGal = recipe.volume * 0.264;
     let points = 0;
     let totalMCU = 0;
 
-    // Calcul Malts
     recipe.malts.forEach((m) => {
       totalMCU += (m.qty * 2.204 * (m.ebc * 0.508)) / volGal;
       points += m.qty * 300 * (m.yield / 100) * (recipe.efficiency / 100);
@@ -59,7 +57,6 @@ export default function CreatorPage() {
     const fg = 1 + (og - 1) * (1 - attenuation);
     const abv = (og - fg) * 131.25;
 
-    // Calcul IBU (Tinseth)
     let totalIBU = 0;
     recipe.hops.forEach((h) => {
       const util = 1.65 * Math.pow(0.000125, og - 1) * ((1 - Math.exp(-0.04 * h.time)) / 4.15);
@@ -76,7 +73,16 @@ export default function CreatorPage() {
     });
   }, [recipe]);
 
-  // --- TRANSMISSION AU BREWMASTER (VERS TABLE 'RECIPES') ---
+  // --- ACTIONS DE RÉORGANISATION ---
+  const moveStep = (index: number, direction: 'up' | 'down') => {
+    const newSteps = [...steps];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newSteps.length) return;
+    [newSteps[index], newSteps[targetIndex]] = [newSteps[targetIndex], newSteps[index]];
+    setSteps(newSteps);
+  };
+
+  // --- TRANSMISSION ---
   const startBatch = async () => {
     if (!recipeName) return alert("ERREUR : NOM_RECETTE_REQUIS");
     setLoading(true);
@@ -103,7 +109,7 @@ export default function CreatorPage() {
           id: `hop-${i}`,
           type: "ACTION",
           title: `HOUBLONNAGE : ${h.name.toUpperCase()}`,
-          instruction: `Ajout à T-${h.time} min avant fin d'ébullition.`,
+          instruction: `Ajout à T-${h.time} min.`,
           ingredients: [{ name: h.name.toUpperCase(), qty: h.qty.toString() }],
         })),
     ];
@@ -119,23 +125,18 @@ export default function CreatorPage() {
       },
     ]);
 
-    if (!error) alert("🚀 TRANSMISSION RÉUSSIE VERS LE LAB DES POTES");
-    else alert("ERREUR_SUPABASE: " + error.message);
+    if (!error) alert("🚀 TRANSMIS AU BREWMASTER");
     setLoading(false);
   };
 
   return (
     <div style={containerStyle}>
       <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
-        {/* HEADER */}
+        
         <header style={headerStyle}>
           <div style={{ flex: 1 }}>
-            <span style={labelStyle}>PROJECT_NAME_ID</span>
-            <input
-              value={recipeName}
-              onChange={(e) => setRecipeName(e.target.value)}
-              style={nameInputStyle}
-            />
+            <span style={labelStyle}>PROJECT_ID</span>
+            <input value={recipeName} onChange={(e) => setRecipeName(e.target.value)} style={nameInputStyle} />
           </div>
           <div style={{ textAlign: "right" }}>
             <span style={labelStyle}>TARGET_OG</span>
@@ -147,23 +148,17 @@ export default function CreatorPage() {
           <main>
             {/* SECTION MALTS */}
             <div style={cardStyle}>
-              <h3 style={cardTitle}>🌾 MALT_BILL (ING_REFS)</h3>
+              <h3 style={cardTitle}>🌾 MALT_BILL (DB_REFS)</h3>
               {recipe.malts.map((m, i) => (
                 <div key={i} style={rowStyle}>
-                  <select
-                    style={selectStyle}
-                    value={m.name}
-                    onChange={(e) => {
-                      const ref = maltOptions.find((x) => x.name === e.target.value);
-                      const n = [...recipe.malts];
-                      n[i] = { ...n[i], name: ref.name, ebc: ref.potency, yield: ref.yield };
-                      setRecipe({ ...recipe, malts: n });
-                    }}
-                  >
-                    <option value="">CHOISIR_MALT</option>
-                    {maltOptions.map((x) => (
-                      <option key={x.id} value={x.name}>{x.name}</option>
-                    ))}
+                  <select style={selectStyle} value={m.name} onChange={(e) => {
+                    const ref = maltOptions.find((x) => x.name === e.target.value);
+                    const n = [...recipe.malts];
+                    n[i] = { ...n[i], name: ref.name, ebc: ref.potency, yield: ref.yield };
+                    setRecipe({ ...recipe, malts: n });
+                  }}>
+                    <option value="">SELECT_MALT</option>
+                    {maltOptions.map((x) => <option key={x.id} value={x.name}>{x.name}</option>)}
                   </select>
                   <div style={unitBox}><input type="number" step="0.1" value={m.qty} onChange={(e) => { const n = [...recipe.malts]; n[i].qty = +e.target.value; setRecipe({ ...recipe, malts: n }); }} style={smallInput} /><span>KG</span></div>
                   <button onClick={() => setRecipe({ ...recipe, malts: recipe.malts.filter((_, idx) => idx !== i) })} style={delBtn}>×</button>
@@ -174,23 +169,17 @@ export default function CreatorPage() {
 
             {/* SECTION HOUBLONS */}
             <div style={cardStyle}>
-              <h3 style={cardTitle}>🌿 HOP_SCHEDULE (ING_REFS)</h3>
+              <h3 style={cardTitle}>🌿 HOP_SCHEDULE (DB_REFS)</h3>
               {recipe.hops.map((h, i) => (
                 <div key={i} style={rowStyle}>
-                  <select
-                    style={selectStyle}
-                    value={h.name}
-                    onChange={(e) => {
-                      const ref = hopOptions.find((x) => x.name === e.target.value);
-                      const n = [...recipe.hops];
-                      n[i] = { ...n[i], name: ref.name, alpha: ref.potency };
-                      setRecipe({ ...recipe, hops: n });
-                    }}
-                  >
-                    <option value="">CHOISIR_HOUBLON</option>
-                    {hopOptions.map((x) => (
-                      <option key={x.id} value={x.name}>{x.name}</option>
-                    ))}
+                  <select style={selectStyle} value={h.name} onChange={(e) => {
+                    const ref = hopOptions.find((x) => x.name === e.target.value);
+                    const n = [...recipe.hops];
+                    n[i] = { ...n[i], name: ref.name, alpha: ref.potency };
+                    setRecipe({ ...recipe, hops: n });
+                  }}>
+                    <option value="">SELECT_HOP</option>
+                    {hopOptions.map((x) => <option key={x.id} value={x.name}>{x.name}</option>)}
                   </select>
                   <div style={unitBox}><input type="number" value={h.qty} onChange={(e) => { const n = [...recipe.hops]; n[i].qty = +e.target.value; setRecipe({ ...recipe, hops: n }); }} style={smallInput} /><span>G</span></div>
                   <div style={unitBox}><input type="number" value={h.time} onChange={(e) => { const n = [...recipe.hops]; n[i].time = +e.target.value; setRecipe({ ...recipe, hops: n }); }} style={smallInput} /><span>MIN</span></div>
@@ -200,17 +189,16 @@ export default function CreatorPage() {
               <button onClick={() => setRecipe({ ...recipe, hops: [...recipe.hops, { name: "", qty: 0, time: 60, alpha: 0 }] })} style={{ ...addBtn, color: "#27ae60" }}>+ ADD_HOP</button>
             </div>
 
-            {/* SECTION ACTIONS */}
+            {/* SECTION ACTIONS RÉORGANISABLES */}
             <div style={{ ...cardStyle, borderLeft: "4px solid #9b59b6" }}>
-              <h3 style={{ ...cardTitle, color: "#9b59b6" }}>🎬 TIMELINE_ACTIONS</h3>
+              <h3 style={{ ...cardTitle, color: "#9b59b6" }}>🎬 TIMELINE_ACTIONS (MOVEABLE)</h3>
               {steps.map((step, i) => (
                 <div key={step.id} style={rowStyle}>
-                  <span style={{ color: "#9b59b6" }}>⚡</span>
-                  <input
-                    style={{ ...selectStyle, textAlign: "left" }}
-                    value={step.label}
-                    onChange={(e) => { const n = [...steps]; n[i].label = e.target.value; setSteps(n); }}
-                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <button onClick={() => moveStep(i, 'up')} style={{ ...moveBtn, opacity: i === 0 ? 0.2 : 1 }} disabled={i === 0}>▲</button>
+                    <button onClick={() => moveStep(i, 'down')} style={{ ...moveBtn, opacity: i === steps.length - 1 ? 0.2 : 1 }} disabled={i === steps.length - 1}>▼</button>
+                  </div>
+                  <input style={{ ...selectStyle, textAlign: "left" }} value={step.label} onChange={(e) => { const n = [...steps]; n[i].label = e.target.value; setSteps(n); }} />
                   <button onClick={() => setSteps(steps.filter((s) => s.id !== step.id))} style={delBtn}>×</button>
                 </div>
               ))}
@@ -218,7 +206,6 @@ export default function CreatorPage() {
             </div>
           </main>
 
-          {/* SIDEBAR STATS */}
           <aside style={sidebarStyle}>
             <div style={{ height: "140px", backgroundColor: getBeerColor(stats.ebc), border: "2px solid #222", marginBottom: "20px" }} />
             <div style={abvStyle}>{stats.abv}%</div>
@@ -255,10 +242,11 @@ const cardStyle = { background: "#0a0a0a", padding: "20px", border: "1px solid #
 const cardTitle = { fontSize: "10px", color: "#444", marginBottom: "15px", letterSpacing: "1px" };
 const rowStyle = { display: "flex", gap: "10px", marginBottom: "10px", alignItems: "center" };
 const selectStyle = { background: "#000", color: "#fff", border: "1px solid #222", padding: "12px", flex: 1, outline: "none", fontSize: "11px", fontWeight: "bold" };
-const unitBox = { position: "relative" as const, display: "flex", alignItems: "center" };
-const smallInput = { background: "#000", color: "#fff", border: "1px solid #222", padding: "12px", width: "80px", textAlign: "center" as const, fontSize: "11px", fontWeight: "black" };
+const unitBox = { position: "relative" as const, display: "flex", alignItems: "center", fontSize: '9px', gap: '5px' };
+const smallInput = { background: "#000", color: "#fff", border: "1px solid #222", padding: "12px", width: "70px", textAlign: "center" as const, fontSize: "11px", fontWeight: "900" };
 const delBtn = { background: "none", border: "none", color: "#333", cursor: "pointer", fontSize: "1.2rem" };
 const addBtn = { background: "none", border: "none", color: "#f39c12", fontSize: "9px", fontWeight: "bold", cursor: "pointer", marginTop: "10px" };
+const moveBtn = { background: '#111', border: '1px solid #222', color: '#9b59b6', fontSize: '8px', cursor: 'pointer', padding: '2px 4px' };
 const sidebarStyle = { position: "sticky" as const, top: "40px", height: "fit-content" };
 const abvStyle = { fontSize: "5rem", fontWeight: "900", color: "#f39c12", lineHeight: "0.8" };
 const ogStyle = { fontSize: "2.5rem", fontWeight: "900", color: "#f39c12" };
