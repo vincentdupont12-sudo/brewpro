@@ -4,31 +4,29 @@ import { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 
 export default function CreatorPage() {
-  // --- 1. ÉTATS ---
   const [dbIngredients, setDbIngredients] = useState<any[]>([]);
-  const [recipeName, setRecipeName] = useState("RECETTE_FOND_DE_SAC");
-  const [loading, setLoading] = useState(false);
+  const [recipeName, setRecipeName] = useState("BATCH_DYNAMIC_PROTOTYPE");
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  
-  const [recipe, setRecipe] = useState({
-    malts: [] as any[],
-    hops: [] as any[],
+  const [loading, setLoading] = useState(false);
+
+  // Configuration de base
+  const [config, setConfig] = useState({
     volume: 20,
     efficiency: 75,
     mashTemp: 67,
   });
 
+  // La Timeline est l'unique source de vérité
   const [steps, setSteps] = useState([
-    { id: "1", label: "CONCASSAGE DES GRAINS", type: "ACTION" },
-    { id: "2", label: "EMPÂTAGE (MASH-IN)", type: "PALIER" },
-    { id: "3", label: "FILTRATION ET RINÇAGE", type: "ACTION" },
-    { id: "4", label: "ÉBULLITION (60 MIN)", type: "ACTION" },
-    { id: "5", label: "REFROIDISSEMENT", type: "ACTION" },
+    { id: "s1", type: "ACTION", label: "CONCASSAGE DES GRAINS", ingredients: [] as any[] },
+    { id: "s2", type: "PALIER", label: "EMPÂTAGE", ingredients: [] as any[] },
+    { id: "s3", type: "ACTION", label: "RINCAGE", ingredients: [] as any[] },
+    { id: "s4", type: "ACTION", label: "EBULLITION", ingredients: [] as any[] },
+    { id: "s5", type: "ACTION", label: "REFROIDISSEMENT", ingredients: [] as any[] },
   ]);
 
-  const [stats, setStats] = useState({ abv: 0, ebc: 0, ibu: 0, og: 1.0 });
+  const [stats, setStats] = useState({ abv: 0, ebc: 0, ibu: 0, og: 1.0, waterE: 0, waterR: 0 });
 
-  // --- 2. CHARGEMENT DES RÉFÉRENCES ---
   useEffect(() => {
     const fetchRefs = async () => {
       const { data } = await supabase.from("ingredient_refs").select("*");
@@ -37,39 +35,51 @@ export default function CreatorPage() {
     fetchRefs();
   }, []);
 
-  const maltOptions = dbIngredients.filter(i => i.type?.toUpperCase() === "MALT");
-  const hopOptions = dbIngredients.filter(i => i.type?.toUpperCase() === "HOP");
-
-  // --- 3. CALCULATEUR D'EAU (LOGIQUE FOND DE SAC) ---
-  const totalMalt = recipe.malts.reduce((acc, m) => acc + (parseFloat(m.qty) || 0), 0);
-  const waterEmpatage = parseFloat((totalMalt * 2.8).toFixed(1));
-  // Formule : (Volume visé * 1.1 évaporation) - (Eau empâtage - Malt absorbé)
-  const waterRincage = parseFloat(((recipe.volume * 1.1) - (waterEmpatage - totalMalt)).toFixed(1));
-
-  // --- 4. MOTEUR DE STATS ---
+  // --- MOTEUR DE CALCULS DYNAMIQUES ---
   useEffect(() => {
-    let points = 0; let mcu = 0;
-    recipe.malts.forEach(m => {
-      mcu += (m.qty * 2.204 * (m.ebc * 0.508)) / (recipe.volume * 0.264);
-      points += m.qty * 300 * (m.yield / 100) * (recipe.efficiency / 100);
-    });
-    const og = 1 + points / recipe.volume / 1000;
-    
+    let totalPoints = 0;
+    let totalMCU = 0;
     let totalIBU = 0;
-    recipe.hops.forEach(h => {
-      const util = 1.65 * Math.pow(0.000125, og - 1) * ((1 - Math.exp(-0.04 * h.time)) / 4.15);
-      totalIBU += ((h.alpha / 100) * (h.qty * 1000) / recipe.volume) * util;
+    let maltWeight = 0;
+
+    steps.forEach((step) => {
+      step.ingredients.forEach((ing) => {
+        if (ing.type === "MALT") {
+          maltWeight += ing.qty;
+          totalMCU += (ing.qty * 2.204 * (ing.ebc * 0.508)) / (config.volume * 0.264);
+          totalPoints += ing.qty * 300 * (ing.yield / 100) * (config.efficiency / 100);
+        }
+      });
     });
+
+    const og = 1 + totalPoints / config.volume / 1000;
+
+    // Calcul IBU basé sur les ingrédients présents dans l'étape "EBULLITION"
+    steps.forEach((step) => {
+      if (step.label.includes("EBULLITION")) {
+        step.ingredients.forEach((ing) => {
+          if (ing.type === "HOP") {
+            const util = 1.65 * Math.pow(0.000125, og - 1) * ((1 - Math.exp(-0.04 * ing.time)) / 4.15);
+            totalIBU += ((ing.alpha / 100) * (ing.qty * 1000) / config.volume) * util;
+          }
+        });
+      }
+    });
+
+    const wE = maltWeight * 2.8;
+    const wR = (config.volume * 1.1) - (wE - maltWeight);
 
     setStats({
       og: parseFloat(og.toFixed(3)),
-      ebc: Math.round(1.49 * Math.pow(mcu, 0.68) * 1.97),
+      ebc: Math.round(1.49 * Math.pow(totalMCU, 0.68) * 1.97),
       abv: parseFloat(((og - 1) * 131.25 * 0.75).toFixed(1)),
-      ibu: Math.round(totalIBU)
+      ibu: Math.round(totalIBU),
+      waterE: parseFloat(wE.toFixed(1)),
+      waterR: parseFloat(wR.toFixed(1))
     });
-  }, [recipe, totalMalt]);
+  }, [steps, config]);
 
-  // --- 5. LOGIQUE DRAG & DROP ---
+  // --- LOGIQUE DRAG & DROP ---
   const handleDragStart = (index: number) => setDraggedIndex(index);
   const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
@@ -82,150 +92,126 @@ export default function CreatorPage() {
     setSteps(newSteps);
   };
 
-  // --- 6. SAUVEGARDE VERS SUPABASE ---
-  const saveRecipe = async () => {
-    setLoading(true);
-    const finalSteps = steps.map(s => {
-      let ings = [];
-      let instr = "PROCÉDURE_STANDARD";
-      
-      if (s.label.includes("EMPÂTAGE")) {
-        ings = recipe.malts.map(m => ({ name: m.name, qty: `${m.qty}kg` }));
-        instr = `Verser ${waterEmpatage}L d'eau.`;
-      }
-      if (s.label.includes("RINÇAGE")) {
-        instr = `Rincer avec ${waterRincage}L d'eau à 78°C.`;
-      }
-      if (s.label.includes("ÉBULLITION")) {
-        ings = recipe.hops.map(h => ({ name: h.name, qty: `${h.qty}g (T-${h.time})` }));
-      }
-      
-      return {
-        id: crypto.randomUUID(),
-        type: s.type,
-        title: s.label,
-        instruction: instr,
-        target: s.label.includes("EMPÂTAGE") ? `${recipe.mashTemp}°C` : "",
-        ingredients: ings
-      };
-    });
+  // --- AJOUT INGREDIENTS DANS UNE ÉTAPE PRÉCISE ---
+  const addIngToStep = (stepIdx: number, type: "MALT" | "HOP") => {
+    const newSteps = [...steps];
+    const newIng = type === "MALT" 
+      ? { id: Date.now(), type: "MALT", name: "", qty: 0, ebc: 0, yield: 0 }
+      : { id: Date.now(), type: "HOP", name: "", qty: 0, alpha: 0, time: 60 };
+    newSteps[stepIdx].ingredients.push(newIng);
+    setSteps(newSteps);
+  };
 
+  const saveToDb = async () => {
+    setLoading(true);
     const { error } = await supabase.from("recipes").insert([{
       data: {
-        name: recipeName.toUpperCase(),
-        eauE: waterEmpatage,
-        eauR: waterRincage,
-        steps: finalSteps
+        name: recipeName,
+        eauE: stats.waterE,
+        eauR: stats.waterR,
+        steps: steps.map(s => ({
+          ...s,
+          instruction: s.label.includes("EMPÂTAGE") ? `Eau: ${stats.waterE}L` : s.label.includes("RINCAGE") ? `Eau: ${stats.waterR}L` : "Action standard"
+        }))
       }
     }]);
-
-    if (!error) alert("🚀 RECETTE ENVOYÉE AUX POTES");
+    if (!error) alert("TRANSMISSION RÉUSSIE");
     setLoading(false);
   };
 
   return (
     <div style={containerStyle}>
       <header style={headerStyle}>
-        <input value={recipeName} onChange={e => setRecipeName(e.target.value)} style={nameInputStyle} />
-        <div style={statBar}>
-          <span>OG: <strong>{stats.og}</strong></span>
-          <span>ABV: <strong>{stats.abv}%</strong></span>
-          <span>IBU: <strong>{stats.ibu}</strong></span>
-          <span style={{color: '#f39c12'}}>TOTAL_MALT: <strong>{totalMalt.toFixed(2)} KG</strong></span>
+        <input value={recipeName} onChange={e => setRecipeName(e.target.value.toUpperCase())} style={titleStyle} />
+        <div style={statsBar}>
+          <Stat label="OG" val={stats.og} />
+          <Stat label="ABV" val={stats.abv + "%"} color="#f39c12" />
+          <Stat label="IBU" val={stats.ibu} color="#27ae60" />
+          <Stat label="EBC" val={stats.ebc} />
+          <Stat label="EAU_E" val={stats.waterE + "L"} />
+          <Stat label="EAU_R" val={stats.waterR + "L"} />
         </div>
       </header>
 
-      <div style={mainGrid}>
-        <main>
-          {/* CALCULATEUR D'EAU DYNAMIQUE */}
-          <div style={waterCard}>
-            <div style={waterBox}>
-              <span style={waterLabel}>💧 EAU EMPÂTAGE</span>
-              <span style={waterVal}>{waterEmpatage} L</span>
-            </div>
-            <div style={waterBox}>
-              <span style={waterLabel}>🚰 EAU RINÇAGE</span>
-              <span style={waterVal}>{waterRincage > 0 ? waterRincage : 0} L</span>
-            </div>
-          </div>
-
-          {/* INGRÉDIENTS */}
-          <div style={cardStyle}>
-            <h3 style={cardTitle}>GESTION DES FONDS DE SAC</h3>
-            {recipe.malts.map((m, i) => (
-              <div key={i} style={rowStyle}>
-                <select style={selectStyle} value={m.name} onChange={e => {
-                  const ref = maltOptions.find(x => x.name === e.target.value);
-                  const n = [...recipe.malts];
-                  n[i] = { ...n[i], name: ref.name, ebc: ref.potency, yield: ref.yield };
-                  setRecipe({ ...recipe, malts: n });
-                }}>
-                  <option>Choisir Malt</option>
-                  {maltOptions.map(x => <option key={x.id}>{x.name}</option>)}
-                </select>
-                <input type="number" step="0.01" value={m.qty} onChange={e => {const n=[...recipe.malts]; n[i].qty=e.target.value; setRecipe({...recipe, malts:n})}} style={smallInput} />
-                <button onClick={() => setRecipe({...recipe, malts: recipe.malts.filter((_, idx) => idx !== i)})} style={delBtn}>×</button>
+      <div style={layout}>
+        <section style={timeline}>
+          {steps.map((step, i) => (
+            <div key={step.id} onDragOver={e => handleDragOver(e, i)} style={{...stepCard, opacity: draggedIndex === i ? 0.3 : 1}}>
+              <div style={stepHeader}>
+                <div draggable onDragStart={() => handleDragStart(i)} onDragEnd={() => setDraggedIndex(null)} style={handle}>☰</div>
+                <input value={step.label} onChange={e => {const n=[...steps]; n[i].label=e.target.value; setSteps(n)}} style={stepTitle} />
+                <div style={stepActions}>
+                  <button onClick={() => addIngToStep(i, "MALT")} style={ingBtn}>+MALT</button>
+                  <button onClick={() => addIngToStep(i, "HOP")} style={ingBtn}>+HOP</button>
+                </div>
               </div>
-            ))}
-            <button onClick={() => setRecipe({...recipe, malts: [...recipe.malts, {name:'', qty:0}]})} style={addBtn}>+ AJOUTER MALT</button>
-          </div>
 
-          {/* TIMELINE INTERVERTIBLE */}
-          <div style={cardStyle}>
-            <h3 style={cardTitle}>TIMELINE ACTIONS (DRAG ☰)</h3>
-            {steps.map((step, i) => (
-              <div key={step.id} onDragOver={(e) => handleDragOver(e, i)} style={{...stepRow, opacity: draggedIndex === i ? 0.3 : 1}}>
-                <div draggable onDragStart={() => handleDragStart(i)} onDragEnd={() => setDraggedIndex(null)} style={dragHandle}>☰</div>
-                <input value={step.label} onChange={e => {const n=[...steps]; n[i].label=e.target.value; setSteps(n)}} style={stepInput} />
-                <button onClick={() => setSteps(steps.filter((_, idx) => idx !== i))} style={delBtn}>×</button>
-              </div>
-            ))}
-            <button onClick={() => setSteps([...steps, {id: Date.now().toString(), label: "NOUVELLE ÉTAPE", type: "ACTION"}])} style={addBtn}>+ AJOUTER ÉTAPE</button>
-          </div>
-        </main>
+              {step.ingredients.map((ing, ingIdx) => (
+                <div key={ing.id} style={ingRow}>
+                  <select 
+                    style={ingSelect}
+                    onChange={e => {
+                      const ref = dbIngredients.find(x => x.name === e.target.value);
+                      const n = [...steps];
+                      n[i].ingredients[ingIdx] = { ...ing, name: ref.name, ebc: ref.potency, yield: ref.yield, alpha: ref.potency };
+                      setSteps(n);
+                    }}
+                  >
+                    <option>INGREDIENT...</option>
+                    {dbIngredients.filter(x => x.type === ing.type).map(x => <option key={x.id}>{x.name}</option>)}
+                  </select>
+                  <input type="number" placeholder="QTY" style={ingInput} onChange={e => {const n=[...steps]; n[i].ingredients[ingIdx].qty = +e.target.value; setSteps(n)}} />
+                  {ing.type === "HOP" && <input type="number" placeholder="MIN" style={ingInput} onChange={e => {const n=[...steps]; n[i].ingredients[ingIdx].time = +e.target.value; setSteps(n)}} />}
+                </div>
+              ))}
+            </div>
+          ))}
+        </section>
 
-        <aside>
-          <div style={{...previewColor, backgroundColor: getBeerColor(stats.ebc)}} />
+        <aside style={sidebar}>
+          <div style={{...colorBox, backgroundColor: getBeerColor(stats.ebc)}} />
           <div style={configBox}>
-            <label style={labelStyle}>VOLUME CIBLE (L)</label>
-            <input type="number" value={recipe.volume} onChange={e => setRecipe({...recipe, volume: +e.target.value})} style={sideInput}/>
-            <label style={labelStyle}>T° EMPÂTAGE (°C)</label>
-            <input type="number" value={recipe.mashTemp} onChange={e => setRecipe({...recipe, mashTemp: +e.target.value})} style={sideInput}/>
+            <label style={labelStyle}>VOLUME FINAL (L)</label>
+            <input type="number" value={config.volume} onChange={e => setConfig({...config, volume: +e.target.value})} style={sideInput} />
+            <label style={labelStyle}>EFFICACITÉ (%)</label>
+            <input type="number" value={config.efficiency} onChange={e => setConfig({...config, efficiency: +e.target.value})} style={sideInput} />
           </div>
-          <button onClick={saveRecipe} disabled={loading} style={saveBtn}>
-            {loading ? "TRANSFERT..." : "ENVOYER AU BREWMASTER"}
-          </button>
+          <button onClick={saveToDb} disabled={loading} style={saveBtn}>{loading ? "SYCHRONISATION..." : "ENVOYER AU BREWMASTER"}</button>
         </aside>
       </div>
     </div>
   );
 }
 
-// --- STYLES ---
+// --- SOUS-COMPOSANTS & STYLES ---
+const Stat = ({label, val, color="#666"}: any) => (
+  <div style={{textAlign: 'center'}}>
+    <div style={{fontSize: '10px', color: '#444'}}>{label}</div>
+    <div style={{fontSize: '18px', fontWeight: 'bold', color: color}}>{val}</div>
+  </div>
+);
+
 const containerStyle = { padding: "40px", backgroundColor: "#050505", color: "#fff", minHeight: "100vh", fontFamily: "monospace" };
 const headerStyle = { borderBottom: "2px solid #111", paddingBottom: "20px", marginBottom: "30px" };
-const nameInputStyle = { background: "transparent", border: "none", color: "#f39c12", fontSize: "2.5rem", fontWeight: "bold", width: "100%", outline: "none" };
-const statBar = { display: "flex", gap: "20px", fontSize: "12px", color: "#666", marginTop: "10px" };
-const mainGrid = { display: "grid", gridTemplateColumns: "1fr 320px", gap: "30px" };
-const waterCard = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "20px" };
-const waterBox = { background: "#111", padding: "20px", border: "1px solid #222", display: "flex", flexDirection: "column" as const };
-const waterLabel = { fontSize: "10px", color: "#666", marginBottom: "5px" };
-const waterVal = { fontSize: "24px", fontWeight: "bold", color: "#f39c12" };
-const cardStyle = { background: "#0a0a0a", border: "1px solid #111", padding: "20px", marginBottom: "20px" };
-const cardTitle = { fontSize: "10px", color: "#444", marginBottom: "15px", letterSpacing: "2px" };
-const rowStyle = { display: "flex", gap: "10px", marginBottom: "10px" };
-const selectStyle = { background: "#000", color: "#fff", border: "1px solid #222", padding: "12px", flex: 1, fontSize: "13px" };
-const smallInput = { background: "#000", color: "#fff", border: "1px solid #222", width: "100px", textAlign: "center" as const, fontWeight: "bold" };
-const stepRow = { display: "flex", alignItems: "center", gap: "10px", background: "#000", padding: "12px", marginBottom: "5px", border: "1px solid #111" };
-const dragHandle = { cursor: "grab", color: "#f39c12", fontSize: "20px", padding: "0 5px" };
-const stepInput = { background: "transparent", border: "none", color: "#fff", flex: 1, outline: "none", fontSize: "13px" };
-const addBtn = { background: "none", border: "1px dashed #333", color: "#444", width: "100%", padding: "12px", cursor: "pointer", marginTop: "10px", fontSize: "11px" };
-const delBtn = { background: "none", border: "none", color: "#444", cursor: "pointer", fontSize: "18px" };
+const titleStyle = { background: "transparent", border: "none", color: "#f39c12", fontSize: "2rem", fontWeight: "bold", outline: "none", width: "100%" };
+const statsBar = { display: "flex", gap: "30px", marginTop: "20px" };
+const layout = { display: "grid", gridTemplateColumns: "1fr 300px", gap: "30px" };
+const timeline = { display: "flex", flexDirection: "column" as const, gap: "10px" };
+const stepCard = { background: "#0a0a0a", border: "1px solid #111", padding: "15px", borderRadius: "4px" };
+const stepHeader = { display: "flex", alignItems: "center", gap: "15px", marginBottom: "10px" };
+const handle = { cursor: "grab", color: "#333", fontSize: "20px" };
+const stepTitle = { background: "transparent", border: "none", color: "#fff", fontSize: "14px", fontWeight: "bold", flex: 1, outline: "none" };
+const stepActions = { display: "flex", gap: "5px" };
+const ingBtn = { background: "#111", border: "1px solid #222", color: "#666", fontSize: "9px", padding: "5px 10px", cursor: "pointer" };
+const ingRow = { display: "flex", gap: "10px", marginTop: "5px", background: "#000", padding: "10px", borderRadius: "2px" };
+const ingSelect = { background: "transparent", color: "#ccc", border: "none", flex: 1, fontSize: "12px" };
+const ingInput = { background: "#050505", border: "1px solid #222", color: "#f39c12", width: "60px", textAlign: "center" as const, fontSize: "12px" };
+const sidebar = { position: "sticky" as const, top: "40px", height: "fit-content" };
+const colorBox = { height: "100px", borderRadius: "4px", marginBottom: "20px", border: "2px solid #111" };
 const configBox = { background: "#0a0a0a", padding: "20px", border: "1px solid #111" };
-const labelStyle = { fontSize: "10px", color: "#444", display: "block", marginBottom: "5px" };
-const sideInput = { background: "#000", color: "#fff", border: "1px solid #222", padding: "12px", width: "100%", marginBottom: "15px", fontWeight: "bold" };
-const saveBtn = { width: "100%", padding: "25px", background: "#f39c12", color: "#000", border: "none", fontWeight: "bold", marginTop: "20px", cursor: "pointer" };
-const previewColor = { height: "120px", width: "100%", marginBottom: "20px", border: "2px solid #222" };
+const labelStyle = { fontSize: "9px", color: "#444", display: "block", marginBottom: "5px" };
+const sideInput = { background: "#000", border: "1px solid #222", color: "#fff", width: "100%", padding: "10px", marginBottom: "15px" };
+const saveBtn = { width: "100%", padding: "20px", background: "#f39c12", color: "#000", border: "none", fontWeight: "bold", marginTop: "20px", cursor: "pointer" };
 
 function getBeerColor(ebc: number) {
   if (ebc <= 8) return "#F5F75C";
