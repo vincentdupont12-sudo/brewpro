@@ -4,10 +4,11 @@ import { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 
 export default function CreatorPage() {
-  // --- ÉTATS ---
+  // --- 1. ÉTATS DES DONNÉES (DB & RECETTE) ---
   const [dbIngredients, setDbIngredients] = useState<any[]>([]);
   const [recipeName, setRecipeName] = useState("NOUVELLE_RECETTE_BRUTALE");
   const [loading, setLoading] = useState(false);
+  
   const [recipe, setRecipe] = useState({
     malts: [] as any[],
     hops: [] as any[],
@@ -16,20 +17,17 @@ export default function CreatorPage() {
     efficiency: 75,
     mashTemp: 67,
   });
+
   const [steps, setSteps] = useState([
     { id: 1, label: "CONCASSAGE ET PRÉPARATION" },
     { id: 2, label: "NETTOYAGE CIP MATÉRIEL" },
   ]);
+
   const [stats, setStats] = useState({
-    abv: 0,
-    ebc: 0,
-    ibu: 0,
-    ratio: 0,
-    og: 1.0,
-    fg: 1.0,
+    abv: 0, ebc: 0, ibu: 0, ratio: 0, og: 1.0, fg: 1.0,
   });
 
-  // --- CHARGEMENT DES RÉFÉRENCES ---
+  // --- 2. CHARGEMENT DES RÉFÉRENCES (DEPUIS INGREDIENT_REFS) ---
   useEffect(() => {
     const fetchRefs = async () => {
       const { data } = await supabase.from("ingredient_refs").select("*");
@@ -41,22 +39,25 @@ export default function CreatorPage() {
   const maltOptions = dbIngredients.filter((i) => i.type?.toUpperCase() === "MALT");
   const hopOptions = dbIngredients.filter((i) => i.type?.toUpperCase() === "HOP");
 
-  // --- CALCULS ---
+  // --- 3. MOTEUR DE CALCUL (LOGIQUE BRASSICOLE) ---
   useEffect(() => {
     const volGal = recipe.volume * 0.264;
     let points = 0;
     let totalMCU = 0;
 
+    // Calcul EBC et Densité Initiale (OG)
     recipe.malts.forEach((m) => {
       totalMCU += (m.qty * 2.204 * (m.ebc * 0.508)) / volGal;
       points += m.qty * 300 * (m.yield / 100) * (recipe.efficiency / 100);
     });
 
     const og = 1 + points / recipe.volume / 1000;
+    // Calcul Atténuation selon température d'empâtage
     const attenuation = 0.75 - (recipe.mashTemp - 67) * 0.02;
     const fg = 1 + (og - 1) * (1 - attenuation);
     const abv = (og - fg) * 131.25;
 
+    // Calcul Amertume (IBU) - Formule de Tinseth
     let totalIBU = 0;
     recipe.hops.forEach((h) => {
       const util = 1.65 * Math.pow(0.000125, og - 1) * ((1 - Math.exp(-0.04 * h.time)) / 4.15);
@@ -73,7 +74,7 @@ export default function CreatorPage() {
     });
   }, [recipe]);
 
-  // --- ACTIONS DE RÉORGANISATION ---
+  // --- 4. GESTION DE LA TIMELINE (RÉORGANISATION) ---
   const moveStep = (index: number, direction: 'up' | 'down') => {
     const newSteps = [...steps];
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
@@ -82,12 +83,13 @@ export default function CreatorPage() {
     setSteps(newSteps);
   };
 
-  // --- TRANSMISSION ---
+  // --- 5. TRANSMISSION VERS LE BREWMASTER (TABLE RECIPES) ---
   const startBatch = async () => {
     if (!recipeName) return alert("ERREUR : NOM_RECETTE_REQUIS");
     setLoading(true);
 
     const formattedSteps = [
+      // Étapes manuelles réorganisables
       ...steps.map((s) => ({
         id: crypto.randomUUID(),
         type: "ACTION",
@@ -95,6 +97,7 @@ export default function CreatorPage() {
         instruction: "PROTOCOLE_LOGISTIQUE",
         ingredients: [],
       })),
+      // Palier d'empâtage généré
       {
         id: "mash",
         type: "PALIER",
@@ -103,6 +106,7 @@ export default function CreatorPage() {
         value: "60",
         ingredients: recipe.malts.map((m) => ({ name: m.name.toUpperCase(), qty: m.qty.toString() })),
       },
+      // Houblonnage chronométré
       ...recipe.hops
         .sort((a, b) => b.time - a.time)
         .map((h, i) => ({
@@ -125,7 +129,8 @@ export default function CreatorPage() {
       },
     ]);
 
-    if (!error) alert("🚀 TRANSMIS AU BREWMASTER");
+    if (!error) alert("🚀 TRANSMIS AU BREWMASTER ! Check la section RESOURCES.");
+    else alert("ERREUR_SUPABASE: " + error.message);
     setLoading(false);
   };
 
@@ -233,7 +238,7 @@ export default function CreatorPage() {
   );
 }
 
-// --- STYLES ---
+// --- STYLES (DESIGN BRUTALISTE) ---
 const containerStyle = { padding: "40px", backgroundColor: "#050505", color: "#fff", minHeight: "100vh", fontFamily: "monospace", fontStyle: "italic" };
 const headerStyle = { display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2px solid #111", paddingBottom: "20px", marginBottom: "40px" };
 const nameInputStyle = { background: "transparent", border: "none", color: "#fff", fontSize: "3.5rem", fontWeight: "900", outline: "none", width: "100%", textTransform: "uppercase" as const, letterSpacing: "-2px" };
@@ -242,7 +247,7 @@ const cardStyle = { background: "#0a0a0a", padding: "20px", border: "1px solid #
 const cardTitle = { fontSize: "10px", color: "#444", marginBottom: "15px", letterSpacing: "1px" };
 const rowStyle = { display: "flex", gap: "10px", marginBottom: "10px", alignItems: "center" };
 const selectStyle = { background: "#000", color: "#fff", border: "1px solid #222", padding: "12px", flex: 1, outline: "none", fontSize: "11px", fontWeight: "bold" };
-const unitBox = { position: "relative" as const, display: "flex", alignItems: "center", fontSize: '9px', gap: '5px' };
+const unitBox = { display: "flex", alignItems: "center", fontSize: '9px', gap: '5px' };
 const smallInput = { background: "#000", color: "#fff", border: "1px solid #222", padding: "12px", width: "70px", textAlign: "center" as const, fontSize: "11px", fontWeight: "900" };
 const delBtn = { background: "none", border: "none", color: "#333", cursor: "pointer", fontSize: "1.2rem" };
 const addBtn = { background: "none", border: "none", color: "#f39c12", fontSize: "9px", fontWeight: "bold", cursor: "pointer", marginTop: "10px" };
