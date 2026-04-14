@@ -3,28 +3,29 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 
-export default function CreatorPage() {
+export default function SuperLaboPage() {
   const [dbIngredients, setDbIngredients] = useState<any[]>([]);
-  const [recipeName, setRecipeName] = useState("PROTOTYPE_BRASSAGE_ALPHA");
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [recipeName, setRecipeName] = useState("PROJET_EXPERIMENTAL");
   const [loading, setLoading] = useState(false);
-  const [isFixedMode, setIsFixedMode] = useState(true); // Mode 20L par défaut
 
+  // --- PARAMÈTRES AVANCÉS DU LABO ---
   const [config, setConfig] = useState({
     volume: 20,
     efficiency: 75,
     mashTemp: 67,
+    sugarPerL: 6, // Pour le resucrage
+    boilTime: 60,
   });
 
   const [steps, setSteps] = useState([
     { id: "s1", type: "ACTION", label: "PRÉPARATION & CONCASSAGE", ingredients: [] as any[] },
     { id: "s2", type: "PALIER", label: "EMPÂTAGE", ingredients: [] as any[] },
-    { id: "s3", type: "ACTION", label: "RINCAGE DES DRÊCHES", ingredients: [] as any[] },
+    { id: "s3", type: "ACTION", label: "FILTRATION & RINCAGE", ingredients: [] as any[] },
     { id: "s4", type: "ACTION", label: "ÉBULLITION", ingredients: [] as any[] },
     { id: "s5", type: "ACTION", label: "FERMENTATION", ingredients: [] as any[] },
   ]);
 
-  const [stats, setStats] = useState({ abv: 0, ebc: 0, ibu: 0, og: 1.0, waterE: 0, waterR: 0 });
+  const [stats, setStats] = useState({ abv: 0, ebc: 0, ibu: 0, og: 1.0, waterE: 0, waterR: 0, sugarTotal: 0 });
 
   useEffect(() => {
     const fetchRefs = async () => {
@@ -34,48 +35,30 @@ export default function CreatorPage() {
     fetchRefs();
   }, []);
 
-  // --- MOTEUR DE CALCULS AVANCÉS ---
+  // --- MOTEUR DE CALCULS "HEAVY" ---
   useEffect(() => {
-    let totalPoints = 0;
-    let totalMCU = 0;
-    let totalIBU = 0;
-    let maltWeight = 0;
-    let attenuation = 0.75; // Défaut
+    let totalPoints = 0, totalMCU = 0, totalIBU = 0, maltWeight = 0, attenuation = 0.75;
 
-    const calcVol = isFixedMode ? 20 : config.volume;
-
-    steps.forEach((step) => {
-      step.ingredients.forEach((ing) => {
+    steps.forEach(s => {
+      s.ingredients.forEach(ing => {
         if (ing.type === "MALT") {
           maltWeight += ing.qty;
-          totalMCU += (ing.qty * 2.204 * (ing.ebc * 0.508)) / (calcVol * 0.264);
+          totalMCU += (ing.qty * 2.204 * (ing.ebc * 0.508)) / (config.volume * 0.264);
           totalPoints += ing.qty * 300 * (ing.yield / 100) * (config.efficiency / 100);
         }
-        if (ing.type === "SUCRE") {
-          totalPoints += ing.qty * 380; // Le sucre a un rendement plus élevé, pas d'EBC
-        }
-        if (ing.type === "YEAST") {
-          attenuation = (ing.potency || 75) / 100;
+        if (ing.type === "SUCRE") totalPoints += ing.qty * 380;
+        if (ing.type === "YEAST") attenuation = (ing.potency || 75) / 100;
+        
+        // IBU spécifique à l'étape ébullition
+        if (s.label.includes("ÉBULLITION") && ing.type === "HOP") {
+            const util = 1.65 * Math.pow(0.000125, (1 + totalPoints/config.volume/1000) - 1) * ((1 - Math.exp(-0.04 * ing.time)) / 4.15);
+            totalIBU += ((ing.alpha / 100) * (ing.qty * 1000) / config.volume) * util;
         }
       });
     });
 
-    const og = 1 + totalPoints / calcVol / 1000;
-
-    // Calcul IBU (Seulement dans l'étape Ébullition)
-    steps.forEach((step) => {
-      if (step.label.toUpperCase().includes("ÉBULLITION")) {
-        step.ingredients.forEach((ing) => {
-          if (ing.type === "HOP") {
-            const util = 1.65 * Math.pow(0.000125, og - 1) * ((1 - Math.exp(-0.04 * ing.time)) / 4.15);
-            totalIBU += ((ing.alpha / 100) * (ing.qty * 1000) / calcVol) * util;
-          }
-        });
-      }
-    });
-
+    const og = 1 + totalPoints / config.volume / 1000;
     const wE = maltWeight * 2.8;
-    const wR = (calcVol * 1.1) - (wE - maltWeight);
 
     setStats({
       og: parseFloat(og.toFixed(3)),
@@ -83,165 +66,147 @@ export default function CreatorPage() {
       abv: parseFloat(((og - 1) * 131.25 * attenuation).toFixed(1)),
       ibu: Math.round(totalIBU),
       waterE: parseFloat(wE.toFixed(1)),
-      waterR: parseFloat(wR.toFixed(1))
+      waterR: parseFloat(((config.volume * 1.1) - (wE - maltWeight)).toFixed(1)),
+      sugarTotal: config.volume * config.sugarPerL
     });
-  }, [steps, config, isFixedMode]);
+  }, [steps, config]);
 
-  // --- LOGIQUE DRAG & DROP ---
-  const handleDragStart = (index: number) => setDraggedIndex(index);
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    if (draggedIndex === null || draggedIndex === index) return;
-    const newSteps = [...steps];
-    const item = newSteps[draggedIndex];
-    newSteps.splice(draggedIndex, 1);
-    newSteps.splice(index, 0, item);
-    setDraggedIndex(index);
-    setSteps(newSteps);
-  };
-
-  const addIngToStep = (stepIdx: number, type: string) => {
-    const newSteps = [...steps];
-    let newIng: any = { id: Date.now(), type, name: "", qty: 0 };
-    if (type === "MALT") newIng = { ...newIng, ebc: 0, yield: 0 };
-    if (type === "HOP") newIng = { ...newIng, alpha: 0, time: 60 };
-    if (type === "YEAST") newIng = { ...newIng, potency: 75 }; // Atténuation
-    
-    newSteps[stepIdx].ingredients.push(newIng);
-    setSteps(newSteps);
-  };
-
-  const saveRecipe = async () => {
+  // --- SAUVEGARDE POUR LES POTES ---
+  const pushToPotes = async () => {
     setLoading(true);
     const { error } = await supabase.from("recipes").insert([{
       data: {
-        name: recipeName,
-        is_fixed_20l: isFixedMode,
+        name: recipeName.toUpperCase(),
+        target_volume: config.volume,
         stats: stats,
-        steps: steps
+        steps: steps // Ils reçoivent la timeline déjà prête
       }
     }]);
-    if (!error) alert("RECETTE SAUVEGARDÉE");
+    if (!error) alert("🚀 RECETTE DISPONIBLE CÔTÉ POTES");
     setLoading(false);
   };
 
   return (
     <div style={containerStyle}>
       <header style={headerStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <input value={recipeName} onChange={e => setRecipeName(e.target.value.toUpperCase())} style={titleStyle} />
-          <div style={modeToggle} onClick={() => setIsFixedMode(!isFixedMode)}>
-            {isFixedMode ? "🔒 MODE FIXE 20L" : "⚖️ MODE DYNAMIQUE"}
-          </div>
-        </div>
-        <div style={statsBar}>
-          <StatBox label="DENSITÉ (OG)" val={stats.og} />
-          <StatBox label="ALCOOL (ABV)" val={stats.abv + "%"} color="#f39c12" />
-          <StatBox label="AMERTUME (IBU)" val={stats.ibu} color="#27ae60" />
-          <StatBox label="COULEUR (EBC)" val={stats.ebc} color="#e67e22" />
-          <StatBox label="EAU EMPÂTAGE" val={stats.waterE + "L"} />
-          <StatBox label="EAU RINÇAGE" val={stats.waterR + "L"} />
-        </div>
+        <div style={badge}>SUPER_LABO_V3</div>
+        <input value={recipeName} onChange={e => setRecipeName(e.target.value)} style={mainTitle} />
       </header>
 
-      <div style={layout}>
-        <section style={timeline}>
-          <h2 style={sectionTitle}>TIMELINE DE BRASSAGE</h2>
+      <div style={grid}>
+        <div style={mainPanel}>
+          {/* SECTION : ESTIMATIONS TEMPS RÉEL */}
+          <div style={statsGrid}>
+            <StatCard label="ALCOOL" val={stats.abv + "%"} color="#f39c12" />
+            <StatCard label="AMERTUME" val={stats.ibu + " IBU"} color="#27ae60" />
+            <StatCard label="COULEUR" val={stats.ebc + " EBC"} color="#e67e22" />
+            <StatCard label="EAU TOTAL" val={(stats.waterE + stats.waterR).toFixed(1) + " L"} />
+          </div>
+
+          {/* TIMELINE DE CONSTRUCTION */}
           {steps.map((step, i) => (
-            <div key={step.id} onDragOver={e => handleDragOver(e, i)} style={{...stepCard, opacity: draggedIndex === i ? 0.3 : 1}}>
-              <div style={stepHeader}>
-                <div draggable onDragStart={() => handleDragStart(i)} onDragEnd={() => setDraggedIndex(null)} style={handle}>☰</div>
-                <input value={step.label} onChange={e => {const n=[...steps]; n[i].label=e.target.value; setSteps(n)}} style={stepTitle} />
-                <div style={stepActions}>
-                  <button onClick={() => addIngToStep(i, "MALT")} style={ingBtn}>+MALT</button>
-                  <button onClick={() => addIngToStep(i, "HOP")} style={ingBtn}>+HOP</button>
-                  <button onClick={() => addIngToStep(i, "SUCRE")} style={ingBtn}>+SUCRE</button>
-                  <button onClick={() => addIngToStep(i, "YEAST")} style={ingBtn}>+LEVURE</button>
+            <div key={step.id} style={stepBox}>
+              <div style={stepHead}>
+                <span style={stepNum}>0{i+1}</span>
+                <input value={step.label} onChange={e => {const n=[...steps]; n[i].label=e.target.value; setSteps(n)}} style={stepLabel} />
+                <div style={btnGrp}>
+                  <button onClick={() => addIng(i, "MALT")} style={miniBtn}>+ MALT</button>
+                  <button onClick={() => addIng(i, "HOP")} style={miniBtn}>+ HOP</button>
+                  <button onClick={() => addIng(i, "YEAST")} style={miniBtn}>+ LEVURE</button>
                 </div>
               </div>
 
-              {step.ingredients.map((ing, ingIdx) => (
-                <div key={ing.id} style={ingRow}>
-                  <div style={{fontSize: '9px', color: '#444', width: '40px'}}>{ing.type}</div>
-                  <select 
-                    style={ingSelect}
-                    onChange={e => {
-                      const ref = dbIngredients.find(x => x.name === e.target.value);
-                      const n = [...steps];
-                      n[i].ingredients[ingIdx] = { ...ing, name: ref.name, ebc: ref.potency, yield: ref.yield, alpha: ref.potency, potency: ref.potency };
-                      setSteps(n);
-                    }}
-                  >
-                    <option>SÉLECTIONNER...</option>
+              {step.ingredients.map((ing, idx) => (
+                <div key={idx} style={ingLine}>
+                  <select style={ingSelect} onChange={e => updateIng(i, idx, e.target.value)}>
+                    <option>SÉLECTIONNER</option>
                     {dbIngredients.filter(x => x.type === ing.type).map(x => <option key={x.id}>{x.name}</option>)}
                   </select>
-                  <input type="number" placeholder="QTÉ" style={ingInput} onChange={e => {const n=[...steps]; n[i].ingredients[ingIdx].qty = +e.target.value; setSteps(n)}} />
-                  {ing.type === "HOP" && <input type="number" placeholder="MIN" style={ingInput} onChange={e => {const n=[...steps]; n[i].ingredients[ingIdx].time = +e.target.value; setSteps(n)}} />}
-                  <button onClick={() => {const n=[...steps]; n[i].ingredients.splice(ingIdx, 1); setSteps(n)}} style={delBtn}>×</button>
+                  <input type="number" placeholder="QTÉ" style={ingInput} onChange={e => {const n=[...steps]; n[i].ingredients[idx].qty = +e.target.value; setSteps(n)}} />
+                  {ing.type === "HOP" && <input type="number" placeholder="MIN" style={ingInput} onChange={e => {const n=[...steps]; n[i].ingredients[idx].time = +e.target.value; setSteps(n)}} />}
                 </div>
               ))}
             </div>
           ))}
-        </section>
+        </div>
 
-        <aside style={sidebar}>
-          <div style={{...beerPreview, backgroundColor: getBeerColor(stats.ebc)}} />
-          <div style={configBox}>
-            <h3 style={cardTitle}>PARAMÈTRES LABO</h3>
-            <label style={labelStyle}>VOLUME DE BATCH (L)</label>
-            <input type="number" disabled={isFixedMode} value={isFixedMode ? 20 : config.volume} onChange={e => setConfig({...config, volume: +e.target.value})} style={sideInput} />
-            <label style={labelStyle}>EFFICACITÉ SYSTÈME (%)</label>
-            <input type="number" value={config.efficiency} onChange={e => setConfig({...config, efficiency: +e.target.value})} style={sideInput} />
-            <label style={labelStyle}>TEMP. EMPÂTAGE (°C)</label>
-            <input type="number" value={config.mashTemp} onChange={e => setConfig({...config, mashTemp: +e.target.value})} style={sideInput} />
+        <div style={sidePanel}>
+          <div style={{...beerColor, backgroundColor: getBeerColor(stats.ebc)}} />
+          
+          <div style={configCard}>
+            <h4 style={cardTitle}>PARAMÈTRES SYSTÈME</h4>
+            <div style={field}><label>VOLUME CIBLE</label><input type="number" value={config.volume} onChange={e => setConfig({...config, volume: +e.target.value})} /></div>
+            <div style={field}><label>EFFICACITÉ %</label><input type="number" value={config.efficiency} onChange={e => setConfig({...config, efficiency: +e.target.value})} /></div>
+            <div style={field}><label>SUCRE EMBOUT. (g/L)</label><input type="number" value={config.sugarPerL} onChange={e => setConfig({...config, sugarPerL: +e.target.value})} /></div>
           </div>
-          <button onClick={saveRecipe} disabled={loading} style={saveBtn}>
-            {loading ? "ENREGISTREMENT..." : "SAUVEGARDER LA RECETTE"}
+
+          <div style={calcBox}>
+             <div style={calcLine}><span>Eau Empâtage :</span> <strong>{stats.waterE} L</strong></div>
+             <div style={calcLine}><span>Eau Rinçage :</span> <strong>{stats.waterR} L</strong></div>
+             <div style={calcLine}><span>Sucre total :</span> <strong>{stats.sugarTotal} g</strong></div>
+          </div>
+
+          <button onClick={pushToPotes} disabled={loading} style={pushBtn}>
+            {loading ? "TRANSFERT..." : "DÉPLOYER CHEZ LES POTES"}
           </button>
-        </aside>
+        </div>
       </div>
     </div>
   );
+
+  function addIng(sIdx: number, type: string) {
+    const n = [...steps];
+    n[sIdx].ingredients.push({ type, name: "", qty: 0, time: 60 });
+    setSteps(n);
+  }
+
+  function updateIng(sIdx: number, iIdx: number, name: string) {
+    const ref = dbIngredients.find(x => x.name === name);
+    const n = [...steps];
+    n[sIdx].ingredients[iIdx] = { ...n[sIdx].ingredients[iIdx], name, ebc: ref.potency, yield: ref.yield, alpha: ref.potency, potency: ref.potency };
+    setSteps(n);
+  }
 }
 
-// --- STYLES & HELPER ---
-const StatBox = ({label, val, color="#888"}: any) => (
-  <div style={{ background: "#0a0a0a", padding: "10px 20px", border: "1px solid #111", textAlign: "center" as const }}>
-    <div style={{ fontSize: "9px", color: "#444", marginBottom: "5px" }}>{label}</div>
-    <div style={{ fontSize: "16px", fontWeight: "bold", color: color }}>{val}</div>
-  </div>
+// --- STYLES "LABO" ---
+const StatCard = ({label, val, color="#fff"}: any) => (
+    <div style={{background: '#111', padding: '15px', border: '1px solid #222', borderRadius: '4px'}}>
+        <div style={{fontSize: '9px', color: '#444', marginBottom: '5px'}}>{label}</div>
+        <div style={{fontSize: '20px', fontWeight: 'bold', color}}>{val}</div>
+    </div>
 );
 
-const containerStyle = { padding: "40px", backgroundColor: "#050505", color: "#fff", minHeight: "100vh", fontFamily: "monospace" };
-const headerStyle = { borderBottom: "2px solid #111", paddingBottom: "20px", marginBottom: "30px" };
-const titleStyle = { background: "transparent", border: "none", color: "#f39c12", fontSize: "2rem", fontWeight: "bold", outline: "none", flex: 1 };
-const statsBar = { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "10px", marginTop: "20px" };
-const modeToggle = { padding: "10px 20px", background: "#111", border: "1px solid #333", cursor: "pointer", fontSize: "11px", borderRadius: "20px" };
-const layout = { display: "grid", gridTemplateColumns: "1fr 300px", gap: "30px" };
-const timeline = { display: "flex", flexDirection: "column" as const, gap: "10px" };
-const sectionTitle = { fontSize: "12px", color: "#444", letterSpacing: "2px", marginBottom: "10px" };
-const stepCard = { background: "#0a0a0a", border: "1px solid #111", padding: "15px" };
-const stepHeader = { display: "flex", alignItems: "center", gap: "15px", marginBottom: "10px" };
-const handle = { cursor: "grab", color: "#333", fontSize: "20px" };
-const stepTitle = { background: "transparent", border: "none", color: "#fff", fontSize: "14px", fontWeight: "bold", flex: 1, outline: "none" };
-const stepActions = { display: "flex", gap: "5px" };
-const ingBtn = { background: "#111", border: "1px solid #222", color: "#555", fontSize: "8px", padding: "4px 8px", cursor: "pointer" };
-const ingRow = { display: "flex", gap: "10px", marginTop: "5px", background: "#000", padding: "8px", alignItems: "center" };
-const ingSelect = { background: "transparent", color: "#ccc", border: "none", flex: 1, fontSize: "11px" };
-const ingInput = { background: "#050505", border: "1px solid #222", color: "#f39c12", width: "55px", textAlign: "center" as const, fontSize: "11px", padding: "4px" };
-const delBtn = { background: "none", border: "none", color: "#333", cursor: "pointer" };
-const sidebar = { position: "sticky" as const, top: "40px", height: "fit-content" };
-const beerPreview = { height: "120px", marginBottom: "20px", border: "2px solid #111" };
-const configBox = { background: "#0a0a0a", padding: "20px", border: "1px solid #111" };
-const cardTitle = { fontSize: "10px", color: "#444", marginBottom: "15px" };
-const labelStyle = { fontSize: "9px", color: "#444", display: "block", marginBottom: "5px" };
-const sideInput = { background: "#000", border: "1px solid #222", color: "#fff", width: "100%", padding: "10px", marginBottom: "15px" };
-const saveBtn = { width: "100%", padding: "20px", background: "#f39c12", color: "#000", border: "none", fontWeight: "bold", marginTop: "20px", cursor: "pointer" };
+const containerStyle = { padding: "40px", backgroundColor: "#020202", color: "#eee", minHeight: "100vh", fontFamily: "'Inter', monospace" };
+const headerStyle = { marginBottom: "40px", borderLeft: "4px solid #f39c12", paddingLeft: "20px" };
+const badge = { fontSize: "10px", color: "#f39c12", fontWeight: "bold", letterSpacing: "2px" };
+const mainTitle = { background: "transparent", border: "none", color: "#fff", fontSize: "2.5rem", fontWeight: "900", outline: "none", width: "100%" };
+const grid = { display: "grid", gridTemplateColumns: "1fr 340px", gap: "40px" };
+const statsGrid = { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "15px", marginBottom: "30px" };
+const mainPanel = { display: "flex", flexDirection: "column" as const, gap: "15px" };
+const stepBox = { background: "#0a0a0a", border: "1px solid #111", padding: "20px" };
+const stepHead = { display: "flex", alignItems: "center", gap: "15px", marginBottom: "15px" };
+const stepNum = { fontSize: "24px", fontWeight: "900", color: "#111", WebkitTextStroke: "1px #222" };
+const stepLabel = { background: "transparent", border: "none", color: "#fff", fontSize: "16px", fontWeight: "bold", flex: 1, outline: "none" };
+const btnGrp = { display: "flex", gap: "8px" };
+const miniBtn = { background: "#151515", border: "1px solid #222", color: "#666", fontSize: "9px", padding: "5px 10px", cursor: "pointer" };
+const ingLine = { display: "flex", gap: "10px", marginTop: "8px", background: "#050505", padding: "10px" };
+const ingSelect = { background: "transparent", border: "none", color: "#888", flex: 1, fontSize: "13px" };
+const ingInput = { background: "#000", border: "1px solid #222", color: "#f39c12", width: "70px", textAlign: "center" as const, padding: "5px" };
+const sidePanel = { position: "sticky" as const, top: "40px", height: "fit-content" };
+const beerColor = { height: "150px", border: "1px solid #222", marginBottom: "20px" };
+const configCard = { background: "#0a0a0a", padding: "20px", border: "1px solid #111" };
+const cardTitle = { fontSize: "11px", color: "#444", marginBottom: "20px", letterSpacing: "1px" };
+const field = { marginBottom: "15px", display: "flex", flexDirection: "column" as const, gap: "5px" };
+const labelStyle = { fontSize: "9px", color: "#444" };
+const sideInput = { background: "#000", border: "1px solid #222", color: "#fff", padding: "10px" };
+const calcBox = { marginTop: "20px", padding: "15px", background: "#111", border: "1px solid #f39c1233" };
+const calcLine = { display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "5px" };
+const pushBtn = { width: "100%", padding: "20px", background: "#f39c12", color: "#000", border: "none", fontWeight: "900", marginTop: "20px", cursor: "pointer" };
 
 function getBeerColor(ebc: number) {
-  if (ebc <= 8) return "#F5F75C";
-  if (ebc <= 15) return "#F1C40F";
-  if (ebc <= 25) return "#D4AC0D";
-  if (ebc <= 40) return "#8D4C17";
-  return "#1A0506";
+    if (ebc <= 8) return "#F5F75C";
+    if (ebc <= 15) return "#F1C40F";
+    if (ebc <= 25) return "#D4AC0D";
+    if (ebc <= 40) return "#8D4C17";
+    return "#1A0506";
 }
