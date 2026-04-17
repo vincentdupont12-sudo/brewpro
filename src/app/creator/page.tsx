@@ -7,6 +7,7 @@ const noSpinnersStyle = `
   input::-webkit-outer-spin-button,
   input::-webkit-inner-spin-button { -webkit-appearance: none !important; margin: 0 !important; }
   input[type=number] { -moz-appearance: textfield !important; }
+  select { cursor: pointer; }
 `;
 
 export default function SuperLaboPage() {
@@ -18,17 +19,16 @@ export default function SuperLaboPage() {
   const [config, setConfig] = useState({
     volume: 20,
     efficiency: 75,
-    mashTemp: 67,
     sugarPerL: 6,
   });
 
   const [steps, setSteps] = useState([
-    { id: "s1", type: "ACTION", label: "CONCASSAGE", ingredients: [] as any[] },
-    { id: "s2", type: "PALIER", label: "EMPÂTAGE", ingredients: [] as any[] },
-    { id: "s3", type: "ACTION", label: "RINÇAGE", ingredients: [] as any[] },
-    { id: "s4", type: "ACTION", label: "ÉBULLITION", ingredients: [] as any[] },
-    { id: "s5", type: "ACTION", label: "FERMENTATION", ingredients: [] as any[] },
-    { id: "s6", type: "ACTION", label: "REFERMENTATION EN BOUTEILLE", ingredients: [] as any[] },
+    { id: "s1", label: "CONCASSAGE", ingredients: [] as any[] },
+    { id: "s2", label: "EMPÂTAGE", temp: 67, ingredients: [] as any[] },
+    { id: "s3", label: "RINÇAGE", temp: 78, ingredients: [] as any[] },
+    { id: "s4", label: "ÉBULLITION", ingredients: [] as any[] },
+    { id: "s5", label: "FERMENTATION", temp: 20, ingredients: [] as any[] },
+    { id: "s6", label: "REFERMENTATION EN BOUTEILLE", ingredients: [] as any[] },
   ]);
 
   const [stats, setStats] = useState({ abv: 0, ebc: 0, ibu: 0, og: 1.0, waterE: 0, waterR: 0, sugarTotal: 0, maltTotal: 0 });
@@ -61,7 +61,6 @@ export default function SuperLaboPage() {
     });
 
     const og = 1 + (totalPoints / (calcVol > 0 ? calcVol : 1)) / 1000;
-
     steps.forEach(s => {
       if (s.label.toUpperCase().includes("ÉBULLITION")) {
         s.ingredients.forEach(ing => {
@@ -93,7 +92,7 @@ export default function SuperLaboPage() {
 
   const addIng = (sIdx: number, type: string) => {
     const n = [...steps];
-    n[sIdx].ingredients.push({ id: Date.now(), type, name: "", qty: 0, time: 60, alpha: 0, ebc: 0, yield: 0, potency: 75 });
+    n[sIdx].ingredients.push({ id: Date.now(), type, name: "", qty: 0, time: 60, alpha: 0, ebc: 0 });
     setSteps(n);
   };
 
@@ -101,7 +100,7 @@ export default function SuperLaboPage() {
     const ref = dbIngredients.find(x => x.name === name);
     if (!ref) return;
     const n = [...steps];
-    n[sIdx].ingredients[iIdx] = { ...n[sIdx].ingredients[iIdx], name, ebc: ref.potency, yield: ref.yield, alpha: ref.potency, potency: ref.potency };
+    n[sIdx].ingredients[iIdx] = { ...n[sIdx].ingredients[iIdx], name, ebc: ref.potency, yield: ref.yield, alpha: ref.potency };
     setSteps(n);
   };
 
@@ -110,7 +109,7 @@ export default function SuperLaboPage() {
     const payload = { name: recipeName.toUpperCase(), is_fixed_20l: isFixedMode, stats, config, steps };
     const { error } = await supabase.from("recipes").insert([{ data: payload }]);
     if (error) alert("ERREUR: " + error.message);
-    else alert("🚀 RECETTE DÉPLOYÉE");
+    else alert("🚀 RECETTE ENVOYÉE AUX POTES");
     setLoading(false);
   };
 
@@ -119,24 +118,22 @@ export default function SuperLaboPage() {
       <style>{noSpinnersStyle}</style>
       
       <header style={headerStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <input value={recipeName} onChange={e => setRecipeName(e.target.value)} style={mainTitle} />
-          <div style={modeToggle} onClick={() => setIsFixedMode(!isFixedMode)}>
-            {isFixedMode ? "🔒 FIXE 20L" : "⚖️ DYNAMIQUE"}
-          </div>
+        <input value={recipeName} onChange={e => setRecipeName(e.target.value)} style={mainTitle} />
+        <div style={modeToggle} onClick={() => setIsFixedMode(!isFixedMode)}>
+          {isFixedMode ? "🔒 MODE FIXE 20L" : "⚖️ MODE DYNAMIQUE"}
         </div>
         <div style={statsGrid}>
           <StatCard label="ABV" val={stats.abv + "%"} color="#f39c12" />
           <StatCard label="IBU" val={stats.ibu} color="#27ae60" />
           <StatCard label="EBC" val={stats.ebc} color="#e67e22" />
-          <StatCard label="OG" val={stats.og} />
-          <StatCard label="MALT TOTAL" val={stats.maltTotal + "kg"} />
-          <StatCard label="SUCRE TOTAL" val={stats.sugarTotal + "g"} />
+          <StatCard label="EAU EMP." val={stats.waterE + "L"} />
+          <StatCard label="EAU RIN." val={stats.waterR + "L"} />
+          <StatCard label="SUCRE" val={stats.sugarTotal + "g"} />
         </div>
       </header>
 
-      <div style={grid}>
-        <main style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      <div style={mobileWrapper}>
+        <main style={mainContainer}>
           {steps.map((step, i) => {
             const label = step.label.toUpperCase();
             const isConcassage = label.includes("CONCASSAGE");
@@ -145,42 +142,47 @@ export default function SuperLaboPage() {
             const isEbullition = label.includes("ÉBULLITION");
             const isFermentation = label.includes("FERMENTATION") && !label.includes("BOUTEILLE");
             const isBouteille = label.includes("BOUTEILLE");
+            const hasTemp = isEmpatage || isRincage || isFermentation;
 
             return (
               <div key={step.id} style={stepBox}>
                 <div style={stepHead}>
                   <div style={stepLabel}>{step.label}</div>
-                  <div style={btnGrp}>
-                    {isConcassage && <button onClick={() => addIng(i, "MALT")} style={addBtn}>+ MALT</button>}
-                    {isEbullition && <button onClick={() => addIng(i, "HOP")} style={addBtn}>+ HOUBLON</button>}
-                    {isFermentation && <button onClick={() => addIng(i, "YEAST")} style={addBtn}>+ LEVURE</button>}
-                    {isBouteille && <button onClick={() => addIng(i, "SUCRE")} style={addBtn}>+ SUCRE</button>}
-                  </div>
+                  {hasTemp && (
+                    <div style={tempBadge}>
+                      <input type="number" style={tempInput} value={step.temp} onWheel={stopWheel} onChange={e => {const n=[...steps]; n[i].temp = e.target.value; setSteps(n)}} />
+                      <span>°C</span>
+                    </div>
+                  )}
                 </div>
 
-                {(isEmpatage || isRincage) && (
-                  <div style={waterNotice}>
-                    💧 EAU REQUISE : <span style={{color:'#f39c12'}}>{isEmpatage ? stats.waterE : stats.waterR} LITRES</span>
-                  </div>
-                )}
+                <div style={btnRow}>
+                  {isConcassage && <button onClick={() => addIng(i, "MALT")} style={addBtn}>+ MALT</button>}
+                  {(isEmpatage || isRincage) && <button onClick={() => addIng(i, "SALT")} style={addBtn}>+ SELS</button>}
+                  {isEbullition && <><button onClick={() => addIng(i, "HOP")} style={addBtn}>+ HOUBLON</button> <button onClick={() => addIng(i, "SALT")} style={addBtn}>+ SELS</button></>}
+                  {isFermentation && <button onClick={() => addIng(i, "YEAST")} style={addBtn}>+ LEVURE</button>}
+                  {isBouteille && <button onClick={() => addIng(i, "SUCRE")} style={addBtn}>+ SUCRE</button>}
+                </div>
 
                 {step.ingredients.map((ing, idx) => (
-                  <div key={idx} style={ingLine}>
+                  <div key={idx} style={ingCard}>
                     <select style={ingSelect} value={ing.name} onChange={e => updateIng(i, idx, e.target.value)}>
-                      <option value="">SÉLECTIONNER...</option>
+                      <option value="">CHOISIR {ing.type}...</option>
                       {dbIngredients.filter(x => x.type === ing.type).map(x => <option key={x.id} value={x.name}>{x.name}</option>)}
                     </select>
-                    <div style={unitWrapper}>
-                      <input type="number" style={ingInput} value={ing.qty} onWheel={stopWheel} onChange={e => {const n=[...steps]; n[i].ingredients[idx].qty = e.target.value; setSteps(n)}} />
-                      <span style={unitTag}>{ing.type === "MALT" || ing.type === "SUCRE" ? "KG" : "G"}</span>
-                    </div>
-                    {ing.type === "HOP" && (
-                      <div style={unitWrapper}>
-                        <input type="number" style={ingInput} value={ing.time} onWheel={stopWheel} onChange={e => {const n=[...steps]; n[i].ingredients[idx].time = e.target.value; setSteps(n)}} />
-                        <span style={unitTag}>MIN</span>
+                    <div style={{display:'flex', justifyContent:'space-between', width:'100%', alignItems:'center'}}>
+                       <div style={unitBox}>
+                        <input type="number" style={ingInput} value={ing.qty} onWheel={stopWheel} onChange={e => {const n=[...steps]; n[i].ingredients[idx].qty = e.target.value; setSteps(n)}} />
+                        <span style={unitLabel}>{ing.type === "MALT" || ing.type === "SUCRE" ? "KG" : "G"}</span>
                       </div>
-                    )}
-                    <button onClick={() => {const n=[...steps]; n[i].ingredients.splice(idx, 1); setSteps(n)}} style={delBtn}>×</button>
+                      {ing.type === "HOP" && (
+                        <div style={unitBox}>
+                          <input type="number" style={ingInput} value={ing.time} onWheel={stopWheel} onChange={e => {const n=[...steps]; n[i].ingredients[idx].time = e.target.value; setSteps(n)}} />
+                          <span style={unitLabel}>MIN</span>
+                        </div>
+                      )}
+                      <button onClick={() => {const n=[...steps]; n[i].ingredients.splice(idx, 1); setSteps(n)}} style={delBtn}>SUPPR.</button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -188,62 +190,21 @@ export default function SuperLaboPage() {
           })}
         </main>
 
-        <aside>
-          <div style={{...beerColor, backgroundColor: getBeerColor(stats.ebc)}} />
-          <div style={configCard}>
-            <div style={field}><label style={labelStyle}>VOLUME FINAL (L)</label>
-              <input type="number" disabled={isFixedMode} value={isFixedMode ? 20 : config.volume} onChange={e => setConfig({...config, volume: +e.target.value})} style={sideInput} />
-            </div>
-            <div style={field}><label style={labelStyle}>EFFICACITÉ (%)</label>
-              <input type="number" value={config.efficiency} onChange={e => setConfig({...config, efficiency: +e.target.value})} style={sideInput} />
-            </div>
-            <div style={field}><label style={labelStyle}>SUCRE EMBOUT. (g/L)</label>
-              <input type="number" value={config.sugarPerL} onChange={e => setConfig({...config, sugarPerL: +e.target.value})} style={sideInput} />
-            </div>
+        <aside style={sideContainer}>
+          <div style={{...beerPreview, backgroundColor: getBeerColor(stats.ebc)}} />
+          <div style={configBox}>
+            <label style={cfgLabel}>VOLUME CIBLE (L)</label>
+            <input type="number" disabled={isFixedMode} value={isFixedMode ? 20 : config.volume} onChange={e => setConfig({...config, volume: +e.target.value})} style={cfgInput} />
+            
+            <label style={cfgLabel}>EFFICACITÉ (%)</label>
+            <input type="number" value={config.efficiency} onChange={e => setConfig({...config, efficiency: +e.target.value})} style={cfgInput} />
           </div>
-          <button onClick={saveRecipe} disabled={loading} style={pushBtn}>{loading ? "SYCHRONISATION..." : "ENVOYER AUX POTES"}</button>
+          <button onClick={saveRecipe} disabled={loading} style={saveBtn}>{loading ? "ENVOI..." : "DÉPLOYER LA RECETTE"}</button>
         </aside>
       </div>
     </div>
   );
 }
 
-const StatCard = ({label, val, color="#fff"}: any) => (
-  <div style={{background: '#0a0a0a', padding: '10px', border: '1px solid #111', textAlign: 'center' as const}}>
-    <div style={{fontSize: '8px', color: '#444', marginBottom: '2px', letterSpacing:'1px'}}>{label}</div>
-    <div style={{fontSize: '16px', fontWeight: 'bold', color}}>{val}</div>
-  </div>
-);
-
-const containerStyle = { padding: "30px", backgroundColor: "#020202", color: "#eee", minHeight: "100vh", fontFamily: "monospace" };
-const headerStyle = { marginBottom: "25px", borderBottom: "1px solid #111", paddingBottom: "15px" };
-const mainTitle = { background: "transparent", border: "none", color: "#fff", fontSize: "1.8rem", fontWeight: "900", outline: "none", flex: 1 };
-const statsGrid = { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "10px", marginTop: "15px" };
-const modeToggle = { padding: "6px 12px", background: "#111", border: "1px solid #333", cursor: "pointer", fontSize: "9px", borderRadius: "2px" };
-const grid = { display: "grid", gridTemplateColumns: "1fr 280px", gap: "25px" };
-const stepBox = { background: "#080808", border: "1px solid #111", padding: "15px" };
-const stepHead = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" };
-const stepLabel = { color: "#f39c12", fontSize: "12px", fontWeight: "bold", letterSpacing: "1px" };
-const btnGrp = { display: "flex", gap: "8px" };
-const addBtn = { background: "#111", border: "1px solid #222", color: "#666", fontSize: "8px", padding: "4px 8px", cursor: "pointer" };
-const waterNotice = { padding: "10px", background: "#000", border: "1px dashed #222", fontSize: "11px", marginBottom: "10px", textAlign: "center" as const };
-const ingLine = { display: "flex", gap: "10px", marginTop: "5px", background: "#040404", padding: "6px", alignItems: "center" };
-const ingSelect = { background: "transparent", border: "none", color: "#999", flex: 1, fontSize: "11px", outline: "none" };
-const unitWrapper = { display: "flex", alignItems: "center", background: "#000", border: "1px solid #111", paddingRight: "5px" };
-const ingInput = { background: "transparent", border: "none", color: "#f39c12", width: "45px", textAlign: "center" as const, fontSize: "12px", padding: "4px" };
-const unitTag = { fontSize: "8px", color: "#333" };
-const delBtn = { background: "none", border: "none", color: "#333", cursor: "pointer", fontSize: "14px" };
-const beerColor = { height: "100px", border: "1px solid #111", marginBottom: "15px" };
-const configCard = { background: "#0a0a0a", padding: "15px", border: "1px solid #111" };
-const field = { marginBottom: "12px" };
-const labelStyle = { fontSize: "8px", color: "#444", display: "block", marginBottom: "4px" };
-const sideInput = { background: "#000", border: "1px solid #222", color: "#fff", width: "100%", padding: "8px", fontSize: "11px" };
-const pushBtn = { width: "100%", padding: "15px", background: "#f39c12", color: "#000", border: "none", fontWeight: "900", marginTop: "15px", cursor: "pointer", fontSize: "10px" };
-
-function getBeerColor(ebc: number) {
-  if (ebc <= 8) return "#F5F75C";
-  if (ebc <= 15) return "#F1C40F";
-  if (ebc <= 25) return "#D4AC0D";
-  if (ebc <= 40) return "#8D4C17";
-  return "#1A0506";
-}
+// --- STYLES MOBILE-FIRST ---
+const containerStyle = { padding: "15px", backgroundColor: "#020202", color: "#eee", minHeight: "100vh", fontFamily: "monospace" };
