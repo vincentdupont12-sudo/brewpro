@@ -18,6 +18,7 @@ interface Step {
   id: string;
   label: string;
   temp?: number;
+  time?: number; // Durée globale de l'étape
   ingredients: Ingredient[];
 }
 
@@ -26,24 +27,22 @@ const customCSS = `
   input[type=number] { -moz-appearance: textfield !important; }
   .floating-abv { position: fixed; bottom: 20px; right: 20px; background: #f39c12; color: #000; padding: 12px; border-radius: 50%; font-weight: 900; box-shadow: 0 4px 15px rgba(243,156,18,0.5); z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 64px; height: 64px; border: 3px solid #000; font-size: 14px; }
   select, input { color: #ddd !important; }
-  ::placeholder { color: #444 !important; }
 `;
 
 export default function SuperLaboPage() {
   const [dbIngredients, setDbIngredients] = useState<any[]>([]);
-  const [recipeName, setRecipeName] = useState("BRASSIN_FULL_CONTROL");
+  const [recipeName, setRecipeName] = useState("BRASSIN_PRECISION_LAB");
   const [isFixedMode, setIsFixedMode] = useState(true);
   const [sugarMode, setSugarMode] = useState(7);
-
   const [config, setConfig] = useState({ volume: 20, efficiency: 75, targetMalt: 5.5, targetIBU: 50 });
 
   const [steps, setSteps] = useState<Step[]>([
     { id: "s1", label: "CONCASSAGE", ingredients: [] },
-    { id: "s2", label: "EMPÂTAGE", temp: 67, ingredients: [] },
+    { id: "s2", label: "EMPÂTAGE", temp: 67, time: 60, ingredients: [] },
     { id: "s_filt", label: "FILTRATION", ingredients: [] },
     { id: "s3", label: "RINÇAGE", temp: 78, ingredients: [] },
-    { id: "s4", label: "ÉBULLITION", ingredients: [] },
-    { id: "s5", label: "FERMENTATION", temp: 20, ingredients: [] },
+    { id: "s4", label: "ÉBULLITION", time: 60, ingredients: [] },
+    { id: "s5", label: "FERMENTATION", temp: 20, time: 14, ingredients: [] },
     { id: "s6", label: "MISE EN BOUTEILLES", ingredients: [] },
   ]);
 
@@ -87,11 +86,17 @@ export default function SuperLaboPage() {
       waterE: parseFloat((maltW * 2.8).toFixed(1)),
       waterR: parseFloat(((vol * 1.15) - (maltW * 0.8)).toFixed(1)),
       sugarTotal: Math.round(vol * sugarMode),
-      yeastTotal: parseFloat((vol * 0.6).toFixed(1)) // Estimation standard 0.6g/L
+      yeastTotal: parseFloat((vol * 0.6).toFixed(1))
     });
   }, [steps, config, isFixedMode, sugarMode]);
 
   useEffect(() => { runCalculations(); }, [runCalculations]);
+
+  const updateStepTime = (sIdx: number, val: number) => {
+    const n = [...steps];
+    n[sIdx].time = val;
+    setSteps(n);
+  };
 
   const updateIngredient = (sIdx: number, iIdx: number, field: string, val: any) => {
     const n = [...steps];
@@ -133,7 +138,6 @@ export default function SuperLaboPage() {
               <div style={{flex:1}}>
                 <div style={stepTitle}>{step.label}</div>
                 
-                {/* LOGIQUE D'AFFICHAGE DES JAUGES ET INFOS PAR ÉTAPE */}
                 {step.label === "CONCASSAGE" && (
                    <div style={gaugeWrapper}>
                        <div style={gaugeText}>CHARGE MALT : {stats.maltTotal.toFixed(1)}kg / {config.targetMalt}kg</div>
@@ -149,23 +153,34 @@ export default function SuperLaboPage() {
                 )}
 
                 {step.label === "EMPÂTAGE" && <div style={subInfo}>VOLUME D'EAU INITIAL : <span style={highlight}>{stats.waterE}L</span></div>}
-                {step.label === "FILTRATION" && <div style={subInfo}>SÉPARATION DU MOÛT ET DES DRÊCHES</div>}
                 {step.label === "RINÇAGE" && <div style={subInfo}>EAU DE RINÇAGE : <span style={highlight}>{stats.waterR}L</span></div>}
                 {step.label === "FERMENTATION" && <div style={subInfo}>ESTIMATION LEVURE : <span style={highlight}>{stats.yeastTotal}G</span></div>}
-                
-                {step.label === "MISE EN BOUTEILLES" && (
-                    <div style={{marginTop:'10px'}}>
-                        <div style={subInfo}>SUCRE TOTAL : <span style={{color:'#2ecc71', fontWeight:'bold'}}>{stats.sugarTotal}G</span></div>
-                        <div style={{display:'flex', gap:'6px', marginTop:'8px'}}>
-                            {[5, 7, 9].map(v => (
-                                <button key={v} onClick={() => setSugarMode(v)} style={{...miniBtn, background: sugarMode === v ? '#222' : 'transparent', color: sugarMode === v ? '#f39c12' : '#555'}}>{v}g/L</button>
-                            ))}
-                        </div>
+                {step.label === "MISE EN BOUTEILLES" && <div style={subInfo}>SUCRE TOTAL : <span style={{color:'#2ecc71', fontWeight:'bold'}}>{stats.sugarTotal}G</span></div>}
+              </div>
+
+              {/* SECTION TIMERS ET TEMPÉRATURES */}
+              <div style={{display:'flex', flexDirection:'column', alignItems:'flex-end', gap:'5px'}}>
+                {step.temp && <div style={tempBadge}>{step.temp}°C</div>}
+                {step.time !== undefined && (
+                    <div style={timeBadge}>
+                        <input 
+                            type="number" 
+                            value={step.time} 
+                            onChange={(e) => updateStepTime(sIdx, parseInt(e.target.value) || 0)} 
+                            style={timeInput}
+                        />
+                        <span style={{fontSize:'8px', opacity:0.5}}>{step.label === "FERMENTATION" ? "J" : "MIN"}</span>
                     </div>
                 )}
               </div>
-              {step.temp && <div style={tempBadge}>{step.temp}°C</div>}
             </div>
+
+            {/* CARTE FILTRATION SPÉCIFIQUE (Pas d'ingrédients) */}
+            {step.label === "FILTRATION" && (
+                <div style={{fontSize:'10px', color:'#555', borderTop:'1px solid #111', paddingTop:'10px', fontStyle:'italic'}}>
+                    Recirculation du moût jusqu'à clarification, puis transfert vers la cuve d'ébullition.
+                </div>
+            )}
 
             <div style={{display:'flex', gap:'8px', marginBottom:'12px'}}>
                 {step.label.includes("CONC") && <button style={addBtn} onClick={() => {const n=[...steps]; n[sIdx].ingredients.push({id:Date.now(), type:"MALT", name:"", qty:0}); setSteps(n)}}>+ MALT</button>}
@@ -175,10 +190,16 @@ export default function SuperLaboPage() {
             {step.ingredients.map((ing, iIdx) => (
               <div key={ing.id} style={ingRow}>
                 <select value={ing.name} onChange={e => updateIngredient(sIdx, iIdx, "name", e.target.value)} style={selectStyle}>
-                    <option value="">Sélectionner...</option>
+                    <option value="">Ingrédient...</option>
                     {dbIngredients.filter(x => x.type === ing.type).map(x => <option key={x.id} value={x.name}>{x.name}</option>)}
                 </select>
                 <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+                  {ing.type === "HOP" && (
+                      <div style={{display:'flex', alignItems:'center', gap:'3px'}}>
+                        <input type="number" value={ing.time} onChange={e => updateIngredient(sIdx, iIdx, "time", e.target.value)} style={ingTimeInput} />
+                        <span style={{fontSize:'7px', color:'#333'}}>m</span>
+                      </div>
+                  )}
                   <input type="number" value={ing.qty} onChange={e => updateIngredient(sIdx, iIdx, "qty", e.target.value)} style={qtyInput} />
                   <span style={unitStyle}>{ing.type === "MALT" ? "KG" : "G"}</span>
                 </div>
@@ -198,33 +219,35 @@ export default function SuperLaboPage() {
   );
 }
 
-// --- STYLES RÉVISÉS (TEXTE & COULEURS) ---
+// --- STYLES ---
 const containerStyle: React.CSSProperties = { padding: "20px", backgroundColor: "#020202", color: "#ddd", minHeight: "100vh", fontFamily: "monospace" };
-const titleStyle: React.CSSProperties = { background:'transparent', border:'none', color:'#fff', fontSize:'1.3rem', fontWeight:'900', width:'100%', outline:'none', marginBottom:'20px', letterSpacing:'1px' };
-const masterGrid: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px' };
-const statBox: React.CSSProperties = { background:'#080808', padding:'12px', borderRadius:'10px', border:'1px solid #111' };
-const statLabel: React.CSSProperties = { display:'flex', justifyContent:'space-between', fontSize:'9px', marginBottom:'6px', color:'#666', fontWeight:'bold' };
+const titleStyle: React.CSSProperties = { background:'transparent', border:'none', color:'#fff', fontSize:'1.1rem', fontWeight:'900', width:'100%', outline:'none', marginBottom:'20px' };
+const masterGrid: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' };
+const statBox: React.CSSProperties = { background:'#080808', padding:'10px', borderRadius:'10px', border:'1px solid #111' };
+const statLabel: React.CSSProperties = { display:'flex', justifyContent:'space-between', fontSize:'8px', marginBottom:'5px', color:'#555' };
 const track: React.CSSProperties = { height:'6px', background:'#111', borderRadius:'3px', overflow:'hidden' };
 const bar: React.CSSProperties = { height:'100%', transition:'width 0.4s ease' };
 const cardStyle: React.CSSProperties = { background:'#080808', padding:'18px', borderRadius:'18px', border:'1px solid #151515' };
 const stepHeader: React.CSSProperties = { display:'flex', justifyContent:'space-between', marginBottom:'15px', alignItems:'flex-start' };
-const stepTitle: React.CSSProperties = { color:'#f39c12', fontWeight:'900', fontSize:'14px', letterSpacing:'1px', marginBottom:'4px' };
-const gaugeWrapper: React.CSSProperties = { marginTop:'10px', width:'90%' };
-const gaugeText: React.CSSProperties = { fontSize:'9px', color:'#666', marginBottom:'4px', fontWeight:'bold' };
-const subInfo: React.CSSProperties = { fontSize:'10px', color:'#888', marginTop:'6px', textTransform:'uppercase', letterSpacing:'0.5px' };
+const stepTitle: React.CSSProperties = { color:'#f39c12', fontWeight:'900', fontSize:'13px', letterSpacing:'1px' };
+const gaugeWrapper: React.CSSProperties = { marginTop:'10px', width:'95%' };
+const gaugeText: React.CSSProperties = { fontSize:'9px', color:'#444', marginBottom:'4px' };
+const subInfo: React.CSSProperties = { fontSize:'10px', color:'#666', marginTop:'6px' };
 const highlight: React.CSSProperties = { color:'#f39c12', fontWeight:'bold' };
-const tempBadge: React.CSSProperties = { background:'#111', padding:'5px 10px', borderRadius:'6px', fontSize:'11px', color:'#f39c12', border:'1px solid #222', fontWeight:'900' };
-const addBtn: React.CSSProperties = { background:'#111', border:'1px solid #222', color:'#666', fontSize:'10px', padding:'6px 12px', borderRadius:'7px', cursor:'pointer' };
-const ingRow: React.CSSProperties = { display:'flex', alignItems:'center', background:'#000', padding:'10px 14px', borderRadius:'10px', border:'1px solid #111', marginBottom:'8px', gap:'10px' };
-const selectStyle: React.CSSProperties = { background:'transparent', border:'none', color:'#bbb', fontSize:'12px', flex:1, outline:'none' };
-const qtyInput: React.CSSProperties = { background:'transparent', border:'none', color:'#f39c12', fontSize:'16px', width:'55px', textAlign:'right', outline:'none', fontWeight:'900' };
-const unitStyle: React.CSSProperties = { fontSize:'9px', color:'#444', fontWeight:'bold' };
+const tempBadge: React.CSSProperties = { background:'#111', padding:'4px 8px', borderRadius:'6px', fontSize:'10px', color:'#f39c12', border:'1px solid #222', fontWeight:'bold' };
+const timeBadge: React.CSSProperties = { background:'#000', padding:'4px 8px', borderRadius:'6px', fontSize:'10px', color:'#888', border:'1px solid #222', display:'flex', alignItems:'center', gap:'4px' };
+const timeInput: React.CSSProperties = { background:'transparent', border:'none', color:'#888', width:'25px', textAlign:'center', outline:'none', fontWeight:'bold', fontSize:'11px' };
+const addBtn: React.CSSProperties = { background:'#111', border:'1px solid #222', color:'#444', fontSize:'9px', padding:'6px 12px', borderRadius:'6px' };
+const ingRow: React.CSSProperties = { display:'flex', alignItems:'center', background:'#000', padding:'10px 14px', borderRadius:'10px', border:'1px solid #111', marginBottom:'6px', gap:'10px' };
+const selectStyle: React.CSSProperties = { background:'transparent', border:'none', color:'#bbb', fontSize:'11px', flex:1, outline:'none' };
+const qtyInput: React.CSSProperties = { background:'transparent', border:'none', color:'#f39c12', fontSize:'15px', width:'50px', textAlign:'right', outline:'none', fontWeight:'bold' };
+const ingTimeInput: React.CSSProperties = { background:'#080808', border:'none', color:'#444', fontSize:'11px', width:'25px', textAlign:'center', outline:'none' };
+const unitStyle: React.CSSProperties = { fontSize:'8px', color:'#333', fontWeight:'bold' };
 const footerStyle: React.CSSProperties = { marginTop:'30px', paddingBottom:'80px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' };
 const cfgCard: React.CSSProperties = { background:'#080808', padding:'10px', borderRadius:'10px', border:'1px solid #111' };
-const cfgLabel: React.CSSProperties = { fontSize:'8px', color:'#555', display:'block', marginBottom:'4px', fontWeight:'bold' };
-const cfgInp: React.CSSProperties = { background:'transparent', border:'none', color:'#fff', width:'100%', fontSize:'15px', outline:'none', fontWeight:'bold' };
-const modeBtn: React.CSSProperties = { gridColumn:'span 2', background:'#111', border:'1px solid #333', color:'#888', padding:'12px', borderRadius:'10px', fontSize:'11px', fontWeight:'bold', letterSpacing:'1px' };
-const miniBtn: React.CSSProperties = { border:'1px solid #333', fontSize:'9px', padding:'4px 10px', borderRadius:'6px', cursor:'pointer', fontWeight:'bold' };
+const cfgLabel: React.CSSProperties = { fontSize:'8px', color:'#333', display:'block', marginBottom:'4px' };
+const cfgInp: React.CSSProperties = { background:'transparent', border:'none', color:'#fff', width:'100%', fontSize:'14px', outline:'none' };
+const modeBtn: React.CSSProperties = { gridColumn:'span 2', background:'#111', border:'1px solid #333', color:'#555', padding:'12px', borderRadius:'10px', fontSize:'10px', fontWeight:'bold' };
 
 function getBeerColor(ebc: number) {
   if (ebc <= 8) return "#F5F75C";
