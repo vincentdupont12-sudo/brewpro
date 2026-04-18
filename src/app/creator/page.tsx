@@ -3,6 +3,27 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 
+// --- SÉCURITÉ TYPESCRIPT POUR VERCEL ---
+interface Ingredient {
+  id: number;
+  type: string;
+  name: string;
+  qty: any;
+  ebc?: any;
+  yield?: any;
+  alpha?: any;
+  time?: any;
+}
+
+interface Step {
+  id: string;
+  label: string;
+  temp?: any;
+  phNote?: string;
+  lastPH?: string;
+  ingredients: Ingredient[];
+}
+
 const noSpinnersStyle = `
   input::-webkit-outer-spin-button,
   input::-webkit-inner-spin-button { -webkit-appearance: none !important; margin: 0 !important; }
@@ -12,7 +33,7 @@ const noSpinnersStyle = `
 
 export default function SuperLaboPage() {
   const [dbIngredients, setDbIngredients] = useState<any[]>([]);
-  const [recipeName, setRecipeName] = useState("NOUVELLE_RECETTE");
+  const [recipeName, setRecipeName] = useState("MA_RECETTE_PRO");
   const [loading, setLoading] = useState(false);
   const [isFixedMode, setIsFixedMode] = useState(true);
   const [showPHModal, setShowPHModal] = useState<number | null>(null);
@@ -21,16 +42,16 @@ export default function SuperLaboPage() {
     volume: 20,
     efficiency: 75,
     sugarPerL: 6,
-    targetMalt: 5.0 // Ton objectif de 10kg par ex.
+    targetMalt: 5.0 
   });
 
-  const [steps, setSteps] = useState([
-    { id: "s1", label: "CONCASSAGE", ingredients: [] as any[] },
-    { id: "s2", label: "EMPÂTAGE", temp: 67, phNote: "", lastPH: "", ingredients: [] as any[] },
-    { id: "s3", label: "RINÇAGE", temp: 78, phNote: "", lastPH: "", ingredients: [] as any[] },
-    { id: "s4", label: "ÉBULLITION", ingredients: [] as any[] },
-    { id: "s5", label: "FERMENTATION", temp: 20, ingredients: [] as any[] },
-    { id: "s6", label: "REFERMENTATION EN BOUTEILLE", ingredients: [] as any[] },
+  const [steps, setSteps] = useState<Step[]>([
+    { id: "s1", label: "CONCASSAGE", ingredients: [] },
+    { id: "s2", label: "EMPÂTAGE", temp: 67, phNote: "", lastPH: "", ingredients: [] },
+    { id: "s3", label: "RINÇAGE", temp: 78, phNote: "", lastPH: "", ingredients: [] },
+    { id: "s4", label: "ÉBULLITION", ingredients: [] },
+    { id: "s5", label: "FERMENTATION", temp: 20, ingredients: [] },
+    { id: "s6", label: "REFERMENTATION EN BOUTEILLE", ingredients: [] },
   ]);
 
   const [stats, setStats] = useState({ 
@@ -44,7 +65,7 @@ export default function SuperLaboPage() {
       try {
         const { data } = await supabase.from("ingredient_refs").select("*");
         if (data) setDbIngredients(data);
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("Erreur Supabase:", e); }
     };
     fetchRefs();
   }, []);
@@ -53,17 +74,17 @@ export default function SuperLaboPage() {
 
   useEffect(() => {
     let totalPoints = 0, totalMCU = 0, totalIBU = 0, maltWeight = 0;
-    const currentVol = isFixedMode ? 20 : (config.volume || 1);
+    const currentVol = isFixedMode ? 20 : (Number(config.volume) || 1);
 
     steps.forEach(s => {
       s.ingredients.forEach(ing => {
         const qty = parseFloat(ing.qty) || 0;
         if (ing.type === "MALT") {
           maltWeight += qty;
-          const ebc = parseFloat(ing.ebc) || 0;
+          const ebcVal = parseFloat(ing.ebc) || 0;
           const yieldVal = parseFloat(ing.yield) || 0;
-          totalMCU += (qty * 2.204 * (ebc * 0.508)) / (currentVol * 0.264);
-          totalPoints += qty * 300 * (yieldVal / 100) * (config.efficiency / 100);
+          totalMCU += (qty * 2.204 * (ebcVal * 0.508)) / (currentVol * 0.264);
+          totalPoints += qty * 300 * (yieldVal / 100) * (Number(config.efficiency) / 100);
         }
         if (ing.type === "SUCRE") totalPoints += qty * 380;
         if (ing.type === "HOP") {
@@ -86,7 +107,7 @@ export default function SuperLaboPage() {
       ibu: Math.round(totalIBU) || 0,
       waterE: parseFloat((maltWeight * 2.8).toFixed(1)),
       waterR: parseFloat(((currentVol * 1.1) - (maltWeight * 1.8)).toFixed(1)),
-      sugarTotal: parseFloat((currentVol * config.sugarPerL).toFixed(1)),
+      sugarTotal: parseFloat((currentVol * Number(config.sugarPerL)).toFixed(1)),
       maltTotal: maltWeight,
       bugu: parseFloat(bugu.toFixed(2))
     });
@@ -96,14 +117,32 @@ export default function SuperLaboPage() {
     const n = [...steps];
     if (field === "name") {
         const ref = dbIngredients.find(x => x.name === value);
-        if (ref) n[sIdx].ingredients[iIdx] = { ...n[sIdx].ingredients[iIdx], name: value, ebc: ref.potency, yield: ref.yield, alpha: ref.potency };
+        if (ref) {
+            n[sIdx].ingredients[iIdx].name = value;
+            n[sIdx].ingredients[iIdx].ebc = ref.potency || 0;
+            n[sIdx].ingredients[iIdx].yield = ref.yield || 0;
+            n[sIdx].ingredients[iIdx].alpha = ref.potency || 0;
+        }
     } else {
-        n[sIdx].ingredients[iIdx][field] = value;
+        n[sIdx].ingredients[iIdx][field as keyof Ingredient] = value;
     }
     setSteps(n);
   };
 
-  const maltProgress = Math.min((stats.maltTotal / (config.targetMalt || 1)) * 100, 100);
+  const saveRecipe = async () => {
+    setLoading(true);
+    try {
+        const payload = { name: recipeName.toUpperCase(), stats, config, steps };
+        const { error } = await supabase.from("recipes").insert([{ data: payload }]);
+        if (error) throw error;
+        alert("🚀 SYNCHRO OK");
+    } catch (e: any) {
+        alert("ERREUR: " + e.message);
+    }
+    setLoading(false);
+  };
+
+  const maltProgress = Math.min((stats.maltTotal / (Number(config.targetMalt) || 1)) * 100, 100);
 
   return (
     <div style={containerStyle}>
@@ -117,14 +156,13 @@ export default function SuperLaboPage() {
             </div>
         </div>
 
-        {/* JAUGE MALT GLOBALE AMÉLIORÉE */}
         <div style={globalGaugeContainer}>
             <div style={gaugeTextRow}>
                 <span style={{fontWeight:'900'}}>MALT TOTAL: {stats.maltTotal.toFixed(2)}kg</span>
                 <span style={{color:'#666'}}>CIBLE: {config.targetMalt}kg</span>
             </div>
             <div style={gaugeBg}>
-                <div style={{...gaugeFill, width: `${maltProgress}%`, backgroundColor: stats.maltTotal >= config.targetMalt ? '#27ae60' : '#f39c12'}} />
+                <div style={{...gaugeFill, width: `${maltProgress}%`, backgroundColor: stats.maltTotal >= Number(config.targetMalt) ? '#27ae60' : '#f39c12'}} />
             </div>
         </div>
         
@@ -157,7 +195,7 @@ export default function SuperLaboPage() {
               </div>
 
               {step.ingredients.map((ing, idx) => (
-                  <div key={idx} style={ingCard}>
+                  <div key={ing.id} style={ingCard}>
                     <div style={{display:'flex', justifyContent:'space-between', marginBottom:'8px'}}>
                         <select style={ingSelect} value={ing.name} onChange={e => updateIng(i, idx, "name", e.target.value)}>
                             <option value="">CHOISIR {ing.type}...</option>
@@ -169,7 +207,7 @@ export default function SuperLaboPage() {
                     <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
                         <div style={unitBox}>
                             <input type="number" style={ingInput} value={ing.qty} onWheel={stopWheel} onChange={e => updateIng(i, idx, "qty", e.target.value)} />
-                            <span style={unitLabel}>{ing.type === "MALT" || ing.type === "SUCRE" ? "KG" : "G"}</span>
+                            <span style={unitLabel}>{ing.type === "MALT" ? "KG" : "G"}</span>
                         </div>
                         {ing.type === "HOP" && (
                             <div style={unitBox}>
@@ -197,14 +235,14 @@ export default function SuperLaboPage() {
                 </div>
             </div>
           </div>
-          <button onClick={saveRecipe} disabled={loading} style={saveBtn}>{loading ? "CHARGEMENT..." : "SAUVEGARDER RECETTE"}</button>
+          <button onClick={saveRecipe} disabled={loading} style={saveBtn}>{loading ? "..." : "SAUVEGARDER"}</button>
         </aside>
       </div>
     </div>
   );
 }
 
-// STYLES
+// --- STYLES ---
 const StatCardStyle = { background: '#0a0a0a', padding: '10px 5px', border: '1px solid #111', textAlign: 'center' as const, borderRadius: '8px' };
 const StatCard = ({label, val, color="#fff"}: any) => (
   <div style={StatCardStyle}>
@@ -215,7 +253,7 @@ const StatCard = ({label, val, color="#fff"}: any) => (
 
 const containerStyle = { padding: "15px", backgroundColor: "#020202", color: "#eee", minHeight: "100vh", fontFamily: "monospace" };
 const headerStyle = { marginBottom: "25px" };
-const mainTitle = { background: "transparent", border: "none", color: "#fff", fontSize: "1.5rem", fontWeight: "900", outline:'none', flex:1 };
+const mainTitle = { background: "transparent", border: "none", color: "#fff", fontSize: "1.4rem", fontWeight: "900", outline:'none', flex:1 };
 const statsGrid = { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" };
 const modeToggle = { padding:'6px 10px', fontSize:'9px', borderRadius:'6px', cursor:'pointer', border:'1px solid #333', fontWeight:'bold' };
 const globalGaugeContainer = { marginBottom: '20px', background: '#080808', padding: '12px', borderRadius: '10px', border: '1px solid #111' };
@@ -227,25 +265,4 @@ const mainContainer = { display: "flex", flexDirection: "column" as const, gap: 
 const stepBox = { background: "#080808", border: "1px solid #151515", padding: "15px", borderRadius: "12px" };
 const stepHead = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" };
 const stepLabel = { color: "#fff", fontSize: "14px", fontWeight: "900", borderLeft:'4px solid #f39c12', paddingLeft:'10px' };
-const tempBadge = { color: '#f39c12', fontSize: '12px', fontWeight: 'bold', background:'#111', padding:'2px 8px', borderRadius:'4px' };
-const btnRow = { display: "flex", gap: "8px", marginBottom: "15px", flexWrap: "wrap" as const };
-const addBtn = { background: "#111", border: "1px solid #222", color: "#666", fontSize: "9px", padding: "8px 12px", borderRadius: "6px" };
-const ingCard = { background: "#000", padding: "12px", borderRadius: "10px", marginBottom: "10px", border: "1px solid #111" };
-const ingSelect = { background: "transparent", border: "none", color: "#bbb", fontSize: "13px", width:'85%', outline:'none' };
-const unitBox = { background: "#0a0a0a", padding: "6px 10px", borderRadius: "6px", border: "1px solid #222", display:'flex', alignItems:'center' };
-const ingInput = { background: "transparent", border: "none", color: "#f39c12", width: "50px", textAlign: "center" as const, fontSize: "15px", outline:'none' };
-const unitLabel = { fontSize: "9px", color: "#444", marginLeft: "5px" };
-const delBtn = { color: "#444", border: "none", background: "none", fontSize: "16px", cursor:'pointer' };
-const sideContainer = { display: "flex", flexDirection: "column" as const, gap: "15px", paddingBottom: "50px" };
-const configBox = { background: "#080808", padding: "15px", borderRadius: "12px", border: "1px solid #111" };
-const cfgLabel = { fontSize: "8px", color: "#555", display: "block", marginBottom: "5px", fontWeight:'bold' };
-const cfgInput = { background: "#000", border: "1px solid #222", color: "#fff", width: "100%", padding: "12px", borderRadius: "8px", fontSize: "15px", outline:'none' };
-const saveBtn = { background: "#f39c12", color: "#000", border: "none", padding: "20px", fontWeight: "900", borderRadius: "12px", fontSize: "14px", cursor: "pointer" };
-
-function getBeerColor(ebc: number) {
-  if (ebc <= 8) return "#F5F75C";
-  if (ebc <= 15) return "#F1C40F";
-  if (ebc <= 25) return "#D4AC0D";
-  if (ebc <= 40) return "#8D4C17";
-  return "#1A0506";
-}
+const tempBadge = { color: '#f39c12', fontSize: '12px', fontWeight: 'bold', background:'#111', padding:'2
