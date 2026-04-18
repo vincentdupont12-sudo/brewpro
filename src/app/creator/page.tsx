@@ -7,7 +7,7 @@ const noSpinnersStyle = `
   input::-webkit-outer-spin-button,
   input::-webkit-inner-spin-button { -webkit-appearance: none !important; margin: 0 !important; }
   input[type=number] { -moz-appearance: textfield !important; }
-  select { cursor: pointer; }
+  textarea { resize: none; }
 `;
 
 export default function SuperLaboPage() {
@@ -15,6 +15,7 @@ export default function SuperLaboPage() {
   const [recipeName, setRecipeName] = useState("NOUVELLE_RECETTE");
   const [loading, setLoading] = useState(false);
   const [isFixedMode, setIsFixedMode] = useState(true);
+  const [showPHModal, setShowPHModal] = useState<number | null>(null);
 
   const [config, setConfig] = useState({
     volume: 20,
@@ -24,8 +25,8 @@ export default function SuperLaboPage() {
 
   const [steps, setSteps] = useState([
     { id: "s1", label: "CONCASSAGE", ingredients: [] as any[] },
-    { id: "s2", label: "EMPÂTAGE", temp: 67, ingredients: [] as any[] },
-    { id: "s3", label: "RINÇAGE", temp: 78, ingredients: [] as any[] },
+    { id: "s2", label: "EMPÂTAGE", temp: 67, phNote: "", lastPH: "", ingredients: [] as any[] },
+    { id: "s3", label: "RINÇAGE", temp: 78, phNote: "", lastPH: "", ingredients: [] as any[] },
     { id: "s4", label: "ÉBULLITION", ingredients: [] as any[] },
     { id: "s5", label: "FERMENTATION", temp: 20, ingredients: [] as any[] },
     { id: "s6", label: "REFERMENTATION EN BOUTEILLE", ingredients: [] as any[] },
@@ -90,20 +91,6 @@ export default function SuperLaboPage() {
     });
   }, [steps, config, isFixedMode]);
 
-  const addIng = (sIdx: number, type: string) => {
-    const n = [...steps];
-    n[sIdx].ingredients.push({ id: Date.now(), type, name: "", qty: 0, time: 60, alpha: 0, ebc: 0 });
-    setSteps(n);
-  };
-
-  const updateIng = (sIdx: number, iIdx: number, name: string) => {
-    const ref = dbIngredients.find(x => x.name === name);
-    if (!ref) return;
-    const n = [...steps];
-    n[sIdx].ingredients[iIdx] = { ...n[sIdx].ingredients[iIdx], name, ebc: ref.potency, yield: ref.yield, alpha: ref.potency };
-    setSteps(n);
-  };
-
   const saveRecipe = async () => {
     setLoading(true);
     const payload = { name: recipeName.toUpperCase(), is_fixed_20l: isFixedMode, stats, config, steps };
@@ -113,9 +100,64 @@ export default function SuperLaboPage() {
     setLoading(false);
   };
 
+  // --- COMPOSANT ASSISTANT PH ---
+  const PHAssistant = () => {
+    if (showPHModal === null) return null;
+    const step = steps[showPHModal];
+    const [measuredPH, setMeasuredPH] = useState(step.lastPH || "");
+    const [phNote, setPhNote] = useState(step.phNote || "");
+    const ph = parseFloat(measuredPH);
+    const diff = ph - 5.4;
+
+    return (
+      <div style={modalOverlay}>
+        <div style={modalContent}>
+          <div style={{display:'flex', justifyContent:'space-between'}}>
+            <h3 style={{color: '#f39c12', fontSize: '14px', margin:0}}>ASSISTANT pH</h3>
+            <button onClick={() => setShowPHModal(null)} style={{background:'none', border:'none', color:'#444'}}>✕</button>
+          </div>
+          
+          <p style={{fontSize:'10px', color:'#444', marginBottom:'15px'}}>{step.label}</p>
+
+          <label style={cfgLabel}>MESURE DU pH-MÈTRE</label>
+          <input type="number" step="0.01" style={cfgInput} value={measuredPH} onChange={(e) => setMeasuredPH(e.target.value)} placeholder="ex: 5.85" />
+
+          {ph > 5.4 ? (
+            <div style={recoBox}>
+              <p style={{fontSize: '9px', color: '#666', marginBottom: '8px'}}>CORRECTION POUR {isFixedMode ? 20 : config.volume}L :</p>
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
+                <div style={{...choiceCard, borderColor:'#3498db'}}>
+                  <span style={{fontSize:'7px', display:'block'}}>LACTIQUE (80%)</span>
+                  <strong style={{fontSize:'14px', color:'#3498db'}}>{(diff * 12).toFixed(1)} ml</strong>
+                </div>
+                <div style={{...choiceCard, borderColor:'#9b59b6'}}>
+                  <span style={{fontSize:'7px', display:'block'}}>PHOSPHO (10%)</span>
+                  <strong style={{fontSize:'14px', color:'#9b59b6'}}>{(diff * 25).toFixed(1)} ml</strong>
+                </div>
+              </div>
+              <p style={{fontSize:'8px', color:'#444', marginTop:'10px'}}>💡 Gypse recommandé si besoin de Calcium.</p>
+            </div>
+          ) : measuredPH && <div style={{textAlign:'center', color:'#27ae60', padding:'10px', fontSize:'12px'}}>✅ pH DANS LA CIBLE</div>}
+
+          <label style={cfgLabel}>NOTES DE RÉPÉTABILITÉ</label>
+          <textarea style={noteArea} value={phNote} onChange={(e) => setPhNote(e.target.value)} placeholder="Saisir les ajouts réels pour la prochaine fois..." />
+
+          <button style={saveBtn} onClick={() => {
+            const n = [...steps];
+            n[showPHModal].phNote = phNote;
+            n[showPHModal].lastPH = measuredPH;
+            setSteps(n);
+            setShowPHModal(null);
+          }}>ENREGISTRER</button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={containerStyle}>
       <style>{noSpinnersStyle}</style>
+      <PHAssistant />
       
       <header style={headerStyle}>
         <input value={recipeName} onChange={e => setRecipeName(e.target.value)} style={mainTitle} />
@@ -148,20 +190,27 @@ export default function SuperLaboPage() {
               <div key={step.id} style={stepBox}>
                 <div style={stepHead}>
                   <div style={stepLabel}>{step.label}</div>
-                  {hasTemp && (
-                    <div style={tempBadge}>
-                      <input type="number" style={tempInput} value={step.temp} onWheel={stopWheel} onChange={e => {const n=[...steps]; n[i].temp = e.target.value; setSteps(n)}} />
-                      <span>°C</span>
-                    </div>
-                  )}
+                  <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
+                    {(isEmpatage || isRincage) && (
+                      <button onClick={() => setShowPHModal(i)} style={{...phBtn, borderColor: step.phNote ? '#27ae60' : '#333'}}>
+                        {step.phNote ? "✅ pH" : "🧪 pH"}
+                      </button>
+                    )}
+                    {hasTemp && (
+                      <div style={tempBadge}>
+                        <input type="number" style={tempInput} value={step.temp} onWheel={stopWheel} onChange={e => {const n=[...steps]; n[i].temp = e.target.value; setSteps(n)}} />
+                        <span>°C</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div style={btnRow}>
-                  {isConcassage && <button onClick={() => addIng(i, "MALT")} style={addBtn}>+ MALT</button>}
-                  {(isEmpatage || isRincage) && <button onClick={() => addIng(i, "SALT")} style={addBtn}>+ SELS</button>}
-                  {isEbullition && <><button onClick={() => addIng(i, "HOP")} style={addBtn}>+ HOUBLON</button> <button onClick={() => addIng(i, "SALT")} style={addBtn}>+ SELS</button></>}
-                  {isFermentation && <button onClick={() => addIng(i, "YEAST")} style={addBtn}>+ LEVURE</button>}
-                  {isBouteille && <button onClick={() => addIng(i, "SUCRE")} style={addBtn}>+ SUCRE</button>}
+                  {isConcassage && <button onClick={() => {const n=[...steps]; n[i].ingredients.push({id:Date.now(), type:"MALT", name:"", qty:0}); setSteps(n)}} style={addBtn}>+ MALT</button>}
+                  {(isEmpatage || isRincage) && <button onClick={() => {const n=[...steps]; n[i].ingredients.push({id:Date.now(), type:"SALT", name:"", qty:0}); setSteps(n)}} style={addBtn}>+ SELS</button>}
+                  {isEbullition && <><button onClick={() => {const n=[...steps]; n[i].ingredients.push({id:Date.now(), type:"HOP", name:"", qty:0, alpha:0, time:60}); setSteps(n)}} style={addBtn}>+ HOUBLON</button> <button onClick={() => {const n=[...steps]; n[i].ingredients.push({id:Date.now(), type:"SALT", name:"", qty:0}); setSteps(n)}} style={addBtn}>+ SELS</button></>}
+                  {isFermentation && <button onClick={() => {const n=[...steps]; n[i].ingredients.push({id:Date.now(), type:"YEAST", name:"", qty:0}); setSteps(n)}} style={addBtn}>+ LEVURE</button>}
+                  {isBouteille && <button onClick={() => {const n=[...steps]; n[i].ingredients.push({id:Date.now(), type:"SUCRE", name:"", qty:0}); setSteps(n)}} style={addBtn}>+ SUCRE</button>}
                 </div>
 
                 {step.ingredients.map((ing, idx) => (
@@ -170,8 +219,8 @@ export default function SuperLaboPage() {
                       <option value="">CHOISIR {ing.type}...</option>
                       {dbIngredients.filter(x => x.type === ing.type).map(x => <option key={x.id} value={x.name}>{x.name}</option>)}
                     </select>
-                    <div style={{display:'flex', justifyContent:'space-between', width:'100%', alignItems:'center'}}>
-                       <div style={unitBox}>
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                      <div style={unitBox}>
                         <input type="number" style={ingInput} value={ing.qty} onWheel={stopWheel} onChange={e => {const n=[...steps]; n[i].ingredients[idx].qty = e.target.value; setSteps(n)}} />
                         <span style={unitLabel}>{ing.type === "MALT" || ing.type === "SUCRE" ? "KG" : "G"}</span>
                       </div>
@@ -181,7 +230,7 @@ export default function SuperLaboPage() {
                           <span style={unitLabel}>MIN</span>
                         </div>
                       )}
-                      <button onClick={() => {const n=[...steps]; n[i].ingredients.splice(idx, 1); setSteps(n)}} style={delBtn}>SUPPR.</button>
+                      <button onClick={() => {const n=[...steps]; n[i].ingredients.splice(idx, 1); setSteps(n)}} style={delBtn}>✕</button>
                     </div>
                   </div>
                 ))}
@@ -193,9 +242,8 @@ export default function SuperLaboPage() {
         <aside style={sideContainer}>
           <div style={{...beerPreview, backgroundColor: getBeerColor(stats.ebc)}} />
           <div style={configBox}>
-            <label style={cfgLabel}>VOLUME CIBLE (L)</label>
+            <label style={cfgLabel}>VOLUME (L)</label>
             <input type="number" disabled={isFixedMode} value={isFixedMode ? 20 : config.volume} onChange={e => setConfig({...config, volume: +e.target.value})} style={cfgInput} />
-            
             <label style={cfgLabel}>EFFICACITÉ (%)</label>
             <input type="number" value={config.efficiency} onChange={e => setConfig({...config, efficiency: +e.target.value})} style={cfgInput} />
           </div>
@@ -209,30 +257,36 @@ export default function SuperLaboPage() {
 // --- STYLES MOBILE-FIRST ---
 const containerStyle = { padding: "15px", backgroundColor: "#020202", color: "#eee", minHeight: "100vh", fontFamily: "monospace" };
 const headerStyle = { marginBottom: "20px", textAlign: "center" as const };
-const mainTitle = { background: "transparent", border: "none", color: "#fff", fontSize: "1.5rem", fontWeight: "900", textAlign: "center" as const, width: "100%", marginBottom: "10px" };
-const modeToggle = { padding: "8px", background: "#111", fontSize: "10px", border: "1px solid #333", borderRadius: "4px", display: "inline-block", cursor: "pointer" };
+const mainTitle = { background: "transparent", border: "none", color: "#fff", fontSize: "1.4rem", fontWeight: "900", textAlign: "center" as const, width: "100%", marginBottom: "5px" };
+const modeToggle = { padding: "6px 12px", background: "#111", fontSize: "9px", border: "1px solid #333", borderRadius: "4px", display: "inline-block", cursor: "pointer" };
 const statsGrid = { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "5px", marginTop: "15px" };
-const mobileWrapper = { display: "flex", flexDirection: "column" as const, gap: "20px", maxWidth: "500px", margin: "0 auto" };
-const mainContainer = { display: "flex", flexDirection: "column" as const, gap: "12px" };
+const mobileWrapper = { display: "flex", flexDirection: "column" as const, gap: "15px", maxWidth: "500px", margin: "0 auto" };
+const mainContainer = { display: "flex", flexDirection: "column" as const, gap: "10px" };
 const stepBox = { background: "#0a0a0a", border: "1px solid #151515", padding: "12px", borderRadius: "8px" };
 const stepHead = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" };
-const stepLabel = { color: "#f39c12", fontSize: "11px", fontWeight: "bold" };
-const tempBadge = { background: "#111", padding: "4px 8px", borderRadius: "4px", display: "flex", alignItems: "center", gap: "4px", fontSize: "12px" };
+const stepLabel = { color: "#f39c12", fontSize: "10px", fontWeight: "bold", letterSpacing: "1px" };
+const phBtn = { background: "#000", border: "1px solid #333", color: "#888", fontSize: "9px", padding: "4px 8px", borderRadius: "4px" };
+const tempBadge = { background: "#111", padding: "4px 8px", borderRadius: "4px", display: "flex", alignItems: "center", gap: "2px", fontSize: "11px" };
 const tempInput = { background: "transparent", border: "none", color: "#fff", width: "30px", textAlign: "center" as const };
-const btnRow = { display: "flex", gap: "8px", marginBottom: "10px", flexWrap: "wrap" as const };
-const addBtn = { background: "#1a1a1a", border: "1px solid #333", color: "#888", fontSize: "9px", padding: "6px 10px", borderRadius: "4px" };
-const ingCard = { background: "#000", padding: "10px", borderRadius: "6px", marginBottom: "8px", border: "1px solid #111" };
-const ingSelect = { background: "transparent", border: "none", color: "#fff", width: "100%", fontSize: "13px", marginBottom: "8px" };
-const unitBox = { background: "#111", padding: "4px 8px", borderRadius: "4px", display: "flex", alignItems: "center" };
-const ingInput = { background: "transparent", border: "none", color: "#f39c12", width: "45px", textAlign: "center" as const, fontSize: "14px" };
-const unitLabel = { fontSize: "9px", color: "#444", marginLeft: "4px" };
-const delBtn = { color: "#442222", border: "none", background: "none", fontSize: "9px", fontWeight: "bold" };
-const sideContainer = { display: "flex", flexDirection: "column" as const, gap: "15px", paddingBottom: "40px" };
-const beerPreview = { height: "60px", borderRadius: "8px", border: "1px solid #222" };
-const configBox = { background: "#0a0a0a", padding: "15px", borderRadius: "8px" };
-const cfgLabel = { fontSize: "9px", color: "#444", display: "block", marginBottom: "4px" };
-const cfgInput = { background: "#000", border: "1px solid #222", color: "#fff", width: "100%", padding: "10px", marginBottom: "10px", borderRadius: "4px" };
-const saveBtn = { background: "#f39c12", color: "#000", border: "none", padding: "18px", fontWeight: "900", borderRadius: "8px", fontSize: "12px" };
+const btnRow = { display: "flex", gap: "6px", marginBottom: "10px", flexWrap: "wrap" as const };
+const addBtn = { background: "#1a1a1a", border: "1px solid #333", color: "#666", fontSize: "8px", padding: "5px 8px", borderRadius: "4px" };
+const ingCard = { background: "#040404", padding: "8px", borderRadius: "6px", marginBottom: "6px", border: "1px solid #111" };
+const ingSelect = { background: "transparent", border: "none", color: "#fff", width: "100%", fontSize: "12px", marginBottom: "5px" };
+const unitBox = { background: "#111", padding: "3px 6px", borderRadius: "4px", display: "flex", alignItems: "center", border: "1px solid #222" };
+const ingInput = { background: "transparent", border: "none", color: "#f39c12", width: "40px", textAlign: "center" as const, fontSize: "13px" };
+const unitLabel = { fontSize: "8px", color: "#333", marginLeft: "3px" };
+const delBtn = { color: "#333", border: "none", background: "none", fontSize: "12px" };
+const sideContainer = { display: "flex", flexDirection: "column" as const, gap: "15px", paddingBottom: "30px" };
+const beerPreview = { height: "50px", borderRadius: "6px", border: "1px solid #222" };
+const configBox = { background: "#0a0a0a", padding: "12px", borderRadius: "8px", border: "1px solid #111" };
+const cfgLabel = { fontSize: "8px", color: "#444", display: "block", marginBottom: "3px" };
+const cfgInput = { background: "#000", border: "1px solid #222", color: "#fff", width: "100%", padding: "10px", marginBottom: "10px", borderRadius: "4px", fontSize: "13px" };
+const saveBtn = { background: "#f39c12", color: "#000", border: "none", padding: "16px", fontWeight: "900", borderRadius: "8px", fontSize: "12px", cursor: "pointer" };
+const modalOverlay = { position: 'fixed' as const, top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' };
+const modalContent = { background: '#0a0a0a', border: '1px solid #333', padding: '20px', borderRadius: '12px', width: '100%', maxWidth: '350px' };
+const recoBox = { margin: '15px 0', padding: '10px', background: '#050505', borderRadius: '6px', border: '1px dashed #333' };
+const choiceCard = { background: "#111", border: "1px solid #333", padding: "8px", borderRadius: "6px", textAlign: "center" as const };
+const noteArea = { width: '100%', background: '#000', border: '1px solid #222', color: '#ccc', padding: '10px', fontSize: '11px', borderRadius: '4px', height: '60px', marginBottom: '15px', fontFamily: 'monospace' };
 
 const StatCard = ({label, val, color="#fff"}: any) => (
   <div style={{background: '#0a0a0a', padding: '8px', border: '1px solid #111', textAlign: 'center' as const, borderRadius: '4px'}}>
