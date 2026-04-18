@@ -208,3 +208,43 @@ export default function SuperLaboPage() {
 
 // --- STYLES MOBILE-FIRST ---
 const containerStyle = { padding: "15px", backgroundColor: "#020202", color: "#eee", minHeight: "100vh", fontFamily: "monospace" };
+const headerStyle = { marginBottom: "20px", textAlign: "center" as const };
+const mainTitle = { background: "transparent", border: "none", color: "#fff", fontSize: "1.5rem", fontWeight: "900", textAlign: "center" as const, width: "100%", marginBottom: "10px" };
+const modeToggle = { padding: "8px", background: "#111", fontSize: "10px", border: "1px solid #333", borderRadius: "4px", display: "inline-block", cursor: "pointer" };
+const statsGrid = { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "5px", marginTop: "15px" };
+const mobileWrapper = { display: "flex", flexDirection: "column" as const, gap: "20px", maxWidth: "500px", margin: "0 auto" };
+const mainContainer = { display: "flex", flexDirection: "column" as const, gap: "12px" };
+const stepBox = { background: "#0a0a0a", border: "1px solid #151515", padding: "12px", borderRadius: "8px" };
+const stepHead = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" };
+const stepLabel = { color: "#f39c12", fontSize: "11px", fontWeight: "bold" };
+const tempBadge = { background: "#111", padding: "4px 8px", borderRadius: "4px", display: "flex", alignItems: "center", gap: "4px", fontSize: "12px" };
+const tempInput = { background: "transparent", border: "none", color: "#fff", width: "30px", textAlign: "center" as const };
+const btnRow = { display: "flex", gap: "8px", marginBottom: "10px", flexWrap: "wrap" as const };
+const addBtn = { background: "#1a1a1a", border: "1px solid #333", color: "#888", fontSize: "9px", padding: "6px 10px", borderRadius: "4px" };
+const ingCard = { background: "#000", padding: "10px", borderRadius: "6px", marginBottom: "8px", border: "1px solid #111" };
+const ingSelect = { background: "transparent", border: "none", color: "#fff", width: "100%", fontSize: "13px", marginBottom: "8px" };
+const unitBox = { background: "#111", padding: "4px 8px", borderRadius: "4px", display: "flex", alignItems: "center" };
+const ingInput = { background: "transparent", border: "none", color: "#f39c12", width: "45px", textAlign: "center" as const, fontSize: "14px" };
+const unitLabel = { fontSize: "9px", color: "#444", marginLeft: "4px" };
+const delBtn = { color: "#442222", border: "none", background: "none", fontSize: "9px", fontWeight: "bold" };
+const sideContainer = { display: "flex", flexDirection: "column" as const, gap: "15px", paddingBottom: "40px" };
+const beerPreview = { height: "60px", borderRadius: "8px", border: "1px solid #222" };
+const configBox = { background: "#0a0a0a", padding: "15px", borderRadius: "8px" };
+const cfgLabel = { fontSize: "9px", color: "#444", display: "block", marginBottom: "4px" };
+const cfgInput = { background: "#000", border: "1px solid #222", color: "#fff", width: "100%", padding: "10px", marginBottom: "10px", borderRadius: "4px" };
+const saveBtn = { background: "#f39c12", color: "#000", border: "none", padding: "18px", fontWeight: "900", borderRadius: "8px", fontSize: "12px" };
+
+const StatCard = ({label, val, color="#fff"}: any) => (
+  <div style={{background: '#0a0a0a', padding: '8px', border: '1px solid #111', textAlign: 'center' as const, borderRadius: '4px'}}>
+    <div style={{fontSize: '7px', color: '#444', textTransform: 'uppercase'}}>{label}</div>
+    <div style={{fontSize: '13px', fontWeight: 'bold', color}}>{val}</div>
+  </div>
+);
+
+function getBeerColor(ebc: number) {
+  if (ebc <= 8) return "#F5F75C";
+  if (ebc <= 15) return "#F1C40F";
+  if (ebc <= 25) return "#D4AC0D";
+  if (ebc <= 40) return "#8D4C17";
+  return "#1A0506";
+}
