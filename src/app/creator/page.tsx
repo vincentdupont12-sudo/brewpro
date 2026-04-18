@@ -100,59 +100,77 @@ export default function SuperLaboPage() {
     setLoading(false);
   };
 
-  // --- COMPOSANT ASSISTANT PH ---
-  const PHAssistant = () => {
-    if (showPHModal === null) return null;
-    const step = steps[showPHModal];
-    const [measuredPH, setMeasuredPH] = useState(step.lastPH || "");
-    const [phNote, setPhNote] = useState(step.phNote || "");
-    const ph = parseFloat(measuredPH);
-    const diff = ph - 5.4;
+ // --- COMPOSANT ASSISTANT PH (VERSION CIBLÉE BASIQUE) ---
+const PHAssistant = () => {
+  if (showPHModal === null) return null;
+  const step = steps[showPHModal];
+  const [measuredPH, setMeasuredPH] = useState(step.lastPH || "");
+  const [phNote, setPhNote] = useState(step.phNote || "");
+  const ph = parseFloat(measuredPH);
+  
+  // On ne déclenche l'assistant que si le pH est trop haut (Basique)
+  const isTooHigh = ph > 5.4;
+  const diff = ph - 5.4;
 
-    return (
-      <div style={modalOverlay}>
-        <div style={modalContent}>
-          <div style={{display:'flex', justifyContent:'space-between'}}>
-            <h3 style={{color: '#f39c12', fontSize: '14px', margin:0}}>ASSISTANT pH</h3>
-            <button onClick={() => setShowPHModal(null)} style={{background:'none', border:'none', color:'#444'}}>✕</button>
-          </div>
-          
-          <p style={{fontSize:'10px', color:'#444', marginBottom:'15px'}}>{step.label}</p>
-
-          <label style={cfgLabel}>MESURE DU pH-MÈTRE</label>
-          <input type="number" step="0.01" style={cfgInput} value={measuredPH} onChange={(e) => setMeasuredPH(e.target.value)} placeholder="ex: 5.85" />
-
-          {ph > 5.4 ? (
-            <div style={recoBox}>
-              <p style={{fontSize: '9px', color: '#666', marginBottom: '8px'}}>CORRECTION POUR {isFixedMode ? 20 : config.volume}L :</p>
-              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
-                <div style={{...choiceCard, borderColor:'#3498db'}}>
-                  <span style={{fontSize:'7px', display:'block'}}>LACTIQUE (80%)</span>
-                  <strong style={{fontSize:'14px', color:'#3498db'}}>{(diff * 12).toFixed(1)} ml</strong>
-                </div>
-                <div style={{...choiceCard, borderColor:'#9b59b6'}}>
-                  <span style={{fontSize:'7px', display:'block'}}>PHOSPHO (10%)</span>
-                  <strong style={{fontSize:'14px', color:'#9b59b6'}}>{(diff * 25).toFixed(1)} ml</strong>
-                </div>
-              </div>
-              <p style={{fontSize:'8px', color:'#444', marginTop:'10px'}}>💡 Gypse recommandé si besoin de Calcium.</p>
-            </div>
-          ) : measuredPH && <div style={{textAlign:'center', color:'#27ae60', padding:'10px', fontSize:'12px'}}>✅ pH DANS LA CIBLE</div>}
-
-          <label style={cfgLabel}>NOTES DE RÉPÉTABILITÉ</label>
-          <textarea style={noteArea} value={phNote} onChange={(e) => setPhNote(e.target.value)} placeholder="Saisir les ajouts réels pour la prochaine fois..." />
-
-          <button style={saveBtn} onClick={() => {
-            const n = [...steps];
-            n[showPHModal].phNote = phNote;
-            n[showPHModal].lastPH = measuredPH;
-            setSteps(n);
-            setShowPHModal(null);
-          }}>ENREGISTRER</button>
+  return (
+    <div style={modalOverlay}>
+      <div style={modalContent}>
+        <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}>
+          <h3 style={{color: '#f39c12', fontSize: '14px', margin:0}}>CONTRÔLE ALCALINITÉ</h3>
+          <button onClick={() => setShowPHModal(null)} style={{background:'none', border:'none', color:'#444', fontSize:'18px'}}>✕</button>
         </div>
+
+        <label style={cfgLabel}>pH MESURÉ</label>
+        <input 
+          type="number" 
+          step="0.01" 
+          style={cfgInput} 
+          value={measuredPH} 
+          onChange={(e) => setMeasuredPH(e.target.value)} 
+          placeholder="ex: 5.8" 
+        />
+
+        {isTooHigh ? (
+          <div style={recoBox}>
+            <p style={{fontSize: '9px', color: '#e74c3c', marginBottom: '8px', fontWeight:'bold'}}>
+              ⚠️ pH TROP BASIQUE (+{diff.toFixed(2)})
+            </p>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
+              <div style={{...choiceCard, borderColor:'#3498db'}}>
+                <span style={{fontSize:'7px', display:'block'}}>ACIDE LACTIQUE</span>
+                <strong style={{fontSize:'14px', color:'#3498db'}}>{(diff * 12).toFixed(1)} ml</strong>
+              </div>
+              <div style={{...choiceCard, borderColor:'#9b59b6'}}>
+                <span style={{fontSize:'7px', display:'block'}}>PHOSPHO (10%)</span>
+                <strong style={{fontSize:'14px', color:'#9b59b6'}}>{(diff * 25).toFixed(1)} ml</strong>
+              </div>
+            </div>
+          </div>
+        ) : measuredPH && (
+          <div style={{textAlign:'center', color:'#27ae60', padding:'15px', fontSize:'12px', background:'#050505', borderRadius:'6px', marginTop:'10px'}}>
+            ✅ pH CORRECT OU ACIDE
+          </div>
+        )}
+
+        <label style={{...cfgLabel, marginTop:'15px'}}>NOTE DE RÉPÉTABILITÉ</label>
+        <textarea 
+          style={noteArea} 
+          value={phNote} 
+          onChange={(e) => setPhNote(e.target.value)} 
+          placeholder="Saisir la correction effectuée..." 
+        />
+
+        <button style={saveBtn} onClick={() => {
+          const n = [...steps];
+          n[showPHModal].phNote = phNote;
+          n[showPHModal].lastPH = measuredPH;
+          setSteps(n);
+          setShowPHModal(null);
+        }}>ENREGISTRER LA MESURE</button>
       </div>
-    );
-  };
+    </div>
+  );
+};
 
   return (
     <div style={containerStyle}>
