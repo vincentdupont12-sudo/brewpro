@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 
-// --- TYPES & INTERFACES ---
 interface Ingredient {
   id: number;
   type: "MALT" | "HOP" | "YEAST" | "SALT" | "SUCRE";
@@ -22,35 +21,33 @@ interface Step {
   ingredients: Ingredient[];
 }
 
-const noSpinnersStyle = `
+const customCSS = `
   input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none !important; margin: 0 !important; }
   input[type=number] { -moz-appearance: textfield !important; }
-  .floating-abv { position: fixed; bottom: 20px; right: 20px; background: #f39c12; color: #000; padding: 15px; borderRadius: 50%; font-weight: 900; box-shadow: 0 4px 15px rgba(243,156,18,0.5); z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 60px; height: 60px; border: 2px solid #000; }
+  .floating-abv { position: fixed; bottom: 20px; right: 20px; background: #f39c12; color: #000; padding: 12px; border-radius: 50%; font-weight: 900; box-shadow: 0 4px 15px rgba(243,156,18,0.5); z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 64px; height: 64px; border: 3px solid #000; font-size: 14px; }
+  select, input { color: #ddd !important; }
+  ::placeholder { color: #444 !important; }
 `;
 
 export default function SuperLaboPage() {
   const [dbIngredients, setDbIngredients] = useState<any[]>([]);
-  const [recipeName, setRecipeName] = useState("BRASSIN_PRO_V3");
+  const [recipeName, setRecipeName] = useState("BRASSIN_FULL_CONTROL");
   const [isFixedMode, setIsFixedMode] = useState(true);
-  const [sugarMode, setSugarMode] = useState(7); // g/L
+  const [sugarMode, setSugarMode] = useState(7);
 
-  const [config, setConfig] = useState({
-    volume: 20,
-    efficiency: 75,
-    targetMalt: 5.5,
-    targetIBU: 50
-  });
+  const [config, setConfig] = useState({ volume: 20, efficiency: 75, targetMalt: 5.5, targetIBU: 50 });
 
   const [steps, setSteps] = useState<Step[]>([
     { id: "s1", label: "CONCASSAGE", ingredients: [] },
     { id: "s2", label: "EMPÂTAGE", temp: 67, ingredients: [] },
+    { id: "s_filt", label: "FILTRATION", ingredients: [] },
     { id: "s3", label: "RINÇAGE", temp: 78, ingredients: [] },
     { id: "s4", label: "ÉBULLITION", ingredients: [] },
     { id: "s5", label: "FERMENTATION", temp: 20, ingredients: [] },
     { id: "s6", label: "MISE EN BOUTEILLES", ingredients: [] },
   ]);
 
-  const [stats, setStats] = useState({ abv: 0, ebc: 0, ibu: 0, og: 1.0, maltTotal: 0, waterE: 0, waterR: 0, sugarTotal: 0 });
+  const [stats, setStats] = useState({ abv: 0, ebc: 0, ibu: 0, og: 1.0, maltTotal: 0, waterE: 0, waterR: 0, sugarTotal: 0, yeastTotal: 0 });
 
   useEffect(() => {
     const fetchRefs = async () => {
@@ -89,7 +86,8 @@ export default function SuperLaboPage() {
       maltTotal: maltW,
       waterE: parseFloat((maltW * 2.8).toFixed(1)),
       waterR: parseFloat(((vol * 1.15) - (maltW * 0.8)).toFixed(1)),
-      sugarTotal: Math.round(vol * sugarMode)
+      sugarTotal: Math.round(vol * sugarMode),
+      yeastTotal: parseFloat((vol * 0.6).toFixed(1)) // Estimation standard 0.6g/L
     });
   }, [steps, config, isFixedMode, sugarMode]);
 
@@ -107,18 +105,15 @@ export default function SuperLaboPage() {
 
   return (
     <div style={containerStyle}>
-      <style>{noSpinnersStyle}</style>
+      <style>{customCSS}</style>
 
-      {/* 1. BADGE FLOTTANT (Concept 1) */}
       <div className="floating-abv">
-        <span style={{fontSize:'8px'}}>ABV</span>
+        <span style={{fontSize:'10px', opacity:0.8}}>ABV</span>
         <span>{stats.abv}%</span>
       </div>
       
-      <header style={{ marginBottom: "20px" }}>
+      <header style={{ marginBottom: "25px" }}>
         <input value={recipeName} onChange={e => setRecipeName(e.target.value)} style={titleStyle} />
-        
-        {/* JAUGES EBC ET IBU (Concept Master) */}
         <div style={masterGrid}>
             <div style={statBox}>
                 <div style={statLabel}><span>AMERTUME (IBU)</span><span>{stats.ibu}/{config.targetIBU}</span></div>
@@ -131,34 +126,39 @@ export default function SuperLaboPage() {
         </div>
       </header>
 
-      <main style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
+      <main style={{ display:'flex', flexDirection:'column', gap:'15px' }}>
         {steps.map((step, sIdx) => (
           <div key={step.id} style={cardStyle}>
             <div style={stepHeader}>
               <div style={{flex:1}}>
                 <div style={stepTitle}>{step.label}</div>
                 
-                {/* JAUGE MALT DANS CARTE CONCASSAGE */}
+                {/* LOGIQUE D'AFFICHAGE DES JAUGES ET INFOS PAR ÉTAPE */}
                 {step.label === "CONCASSAGE" && (
-                   <div style={{marginTop:'8px'}}>
-                       <div style={{fontSize:'9px', color:'#444', marginBottom:'3px'}}>CHARGE : {stats.maltTotal.toFixed(1)}kg / {config.targetMalt}kg</div>
-                       <div style={{...track, height:'4px', width:'100%'}}>
-                            <div style={{...bar, width:`${Math.min((stats.maltTotal/config.targetMalt)*100, 100)}%`, backgroundColor:'#f39c12'}} />
-                       </div>
+                   <div style={gaugeWrapper}>
+                       <div style={gaugeText}>CHARGE MALT : {stats.maltTotal.toFixed(1)}kg / {config.targetMalt}kg</div>
+                       <div style={track}><div style={{...bar, width:`${Math.min((stats.maltTotal/config.targetMalt)*100, 100)}%`, backgroundColor:'#f39c12'}} /></div>
                    </div>
                 )}
 
-                {/* VOLUMES D'EAU DYNAMIQUES */}
-                {step.label === "EMPÂTAGE" && <div style={subText}>EAU À CHAUFFER : <strong style={{color:'#f39c12'}}>{stats.waterE}L</strong></div>}
-                {step.label === "RINÇAGE" && <div style={subText}>EAU DE RINÇAGE : <strong style={{color:'#f39c12'}}>{stats.waterR}L</strong></div>}
+                {step.label === "ÉBULLITION" && (
+                   <div style={gaugeWrapper}>
+                       <div style={gaugeText}>EXTRACTION IBU : {stats.ibu} / {config.targetIBU}</div>
+                       <div style={track}><div style={{...bar, width:`${Math.min((stats.ibu/config.targetIBU)*100, 100)}%`, backgroundColor:'#2ecc71'}} /></div>
+                   </div>
+                )}
+
+                {step.label === "EMPÂTAGE" && <div style={subInfo}>VOLUME D'EAU INITIAL : <span style={highlight}>{stats.waterE}L</span></div>}
+                {step.label === "FILTRATION" && <div style={subInfo}>SÉPARATION DU MOÛT ET DES DRÊCHES</div>}
+                {step.label === "RINÇAGE" && <div style={subInfo}>EAU DE RINÇAGE : <span style={highlight}>{stats.waterR}L</span></div>}
+                {step.label === "FERMENTATION" && <div style={subInfo}>ESTIMATION LEVURE : <span style={highlight}>{stats.yeastTotal}G</span></div>}
                 
-                {/* SUCRE INTELLIGENT */}
                 {step.label === "MISE EN BOUTEILLES" && (
                     <div style={{marginTop:'10px'}}>
-                        <div style={subText}>SUCRE TOTAL : <strong style={{color:'#27ae60'}}>{stats.sugarTotal}G</strong></div>
-                        <div style={{display:'flex', gap:'5px', marginTop:'5px'}}>
+                        <div style={subInfo}>SUCRE TOTAL : <span style={{color:'#2ecc71', fontWeight:'bold'}}>{stats.sugarTotal}G</span></div>
+                        <div style={{display:'flex', gap:'6px', marginTop:'8px'}}>
                             {[5, 7, 9].map(v => (
-                                <button key={v} onClick={() => setSugarMode(v)} style={{...miniBtn, borderColor: sugarMode === v ? '#27ae60' : '#222'}}>{v}g/L</button>
+                                <button key={v} onClick={() => setSugarMode(v)} style={{...miniBtn, background: sugarMode === v ? '#222' : 'transparent', color: sugarMode === v ? '#f39c12' : '#555'}}>{v}g/L</button>
                             ))}
                         </div>
                     </div>
@@ -167,7 +167,7 @@ export default function SuperLaboPage() {
               {step.temp && <div style={tempBadge}>{step.temp}°C</div>}
             </div>
 
-            <div style={{display:'flex', gap:'8px', marginBottom:'10px'}}>
+            <div style={{display:'flex', gap:'8px', marginBottom:'12px'}}>
                 {step.label.includes("CONC") && <button style={addBtn} onClick={() => {const n=[...steps]; n[sIdx].ingredients.push({id:Date.now(), type:"MALT", name:"", qty:0}); setSteps(n)}}>+ MALT</button>}
                 {step.label.includes("ÉBUL") && <button style={addBtn} onClick={() => {const n=[...steps]; n[sIdx].ingredients.push({id:Date.now(), type:"HOP", name:"", qty:0, time:60}); setSteps(n)}}>+ HOUBLON</button>}
             </div>
@@ -175,11 +175,13 @@ export default function SuperLaboPage() {
             {step.ingredients.map((ing, iIdx) => (
               <div key={ing.id} style={ingRow}>
                 <select value={ing.name} onChange={e => updateIngredient(sIdx, iIdx, "name", e.target.value)} style={selectStyle}>
-                    <option value="">Ingrédient...</option>
+                    <option value="">Sélectionner...</option>
                     {dbIngredients.filter(x => x.type === ing.type).map(x => <option key={x.id} value={x.name}>{x.name}</option>)}
                 </select>
-                <input type="number" value={ing.qty} onChange={e => updateIngredient(sIdx, iIdx, "qty", e.target.value)} style={qtyInput} />
-                <span style={{fontSize:'8px', color:'#333'}}>{ing.type === "MALT" ? "KG" : "G"}</span>
+                <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+                  <input type="number" value={ing.qty} onChange={e => updateIngredient(sIdx, iIdx, "qty", e.target.value)} style={qtyInput} />
+                  <span style={unitStyle}>{ing.type === "MALT" ? "KG" : "G"}</span>
+                </div>
               </div>
             ))}
           </div>
@@ -187,38 +189,42 @@ export default function SuperLaboPage() {
       </main>
 
       <footer style={footerStyle}>
-          <div style={cfgCard}><label style={cfgLabel}>VOLUME (L)</label><input type="number" value={isFixedMode ? 20 : config.volume} onChange={e => setConfig({...config, volume: +e.target.value})} style={cfgInp} /></div>
-          <div style={cfgCard}><label style={cfgLabel}>CIBLE MALT (KG)</label><input type="number" value={config.targetMalt} onChange={e => setConfig({...config, targetMalt: +e.target.value})} style={cfgInp} /></div>
+          <div style={cfgCard}><label style={cfgLabel}>VOLUME</label><input type="number" value={isFixedMode ? 20 : config.volume} onChange={e => setConfig({...config, volume: +e.target.value})} style={cfgInp} /></div>
+          <div style={cfgCard}><label style={cfgLabel}>CIBLE MALT</label><input type="number" value={config.targetMalt} onChange={e => setConfig({...config, targetMalt: +e.target.value})} style={cfgInp} /></div>
           <div style={cfgCard}><label style={cfgLabel}>CIBLE IBU</label><input type="number" value={config.targetIBU} onChange={e => setConfig({...config, targetIBU: +e.target.value})} style={cfgInp} /></div>
-          <button style={modeBtn} onClick={() => setIsFixedMode(!isFixedMode)}>{isFixedMode ? "MODE 20L" : "LIBRE"}</button>
+          <button style={modeBtn} onClick={() => setIsFixedMode(!isFixedMode)}>{isFixedMode ? "VERROUILLÉ 20L" : "LITRAGE LIBRE"}</button>
       </footer>
     </div>
   );
 }
 
-// --- STYLES ---
-const containerStyle: React.CSSProperties = { padding: "15px", backgroundColor: "#020202", color: "#eee", minHeight: "100vh", fontFamily: "monospace" };
-const titleStyle: React.CSSProperties = { background:'transparent', border:'none', color:'#fff', fontSize:'1.2rem', fontWeight:'900', width:'100%', outline:'none', marginBottom:'15px' };
-const masterGrid: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' };
-const statBox: React.CSSProperties = { background:'#080808', padding:'10px', borderRadius:'8px', border:'1px solid #111' };
-const statLabel: React.CSSProperties = { display:'flex', justifyContent:'space-between', fontSize:'8px', marginBottom:'5px', color:'#444' };
+// --- STYLES RÉVISÉS (TEXTE & COULEURS) ---
+const containerStyle: React.CSSProperties = { padding: "20px", backgroundColor: "#020202", color: "#ddd", minHeight: "100vh", fontFamily: "monospace" };
+const titleStyle: React.CSSProperties = { background:'transparent', border:'none', color:'#fff', fontSize:'1.3rem', fontWeight:'900', width:'100%', outline:'none', marginBottom:'20px', letterSpacing:'1px' };
+const masterGrid: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px' };
+const statBox: React.CSSProperties = { background:'#080808', padding:'12px', borderRadius:'10px', border:'1px solid #111' };
+const statLabel: React.CSSProperties = { display:'flex', justifyContent:'space-between', fontSize:'9px', marginBottom:'6px', color:'#666', fontWeight:'bold' };
 const track: React.CSSProperties = { height:'6px', background:'#111', borderRadius:'3px', overflow:'hidden' };
 const bar: React.CSSProperties = { height:'100%', transition:'width 0.4s ease' };
-const cardStyle: React.CSSProperties = { background:'#080808', padding:'15px', borderRadius:'15px', border:'1px solid #151515' };
-const stepHeader: React.CSSProperties = { display:'flex', justifyContent:'space-between', marginBottom:'12px' };
-const stepTitle: React.CSSProperties = { color:'#f39c12', fontWeight:'900', fontSize:'12px', letterSpacing:'1px' };
-const subText: React.CSSProperties = { fontSize:'10px', color:'#555', marginTop:'5px' };
-const tempBadge: React.CSSProperties = { background:'#111', padding:'3px 8px', borderRadius:'5px', fontSize:'10px', color:'#f39c12', border:'1px solid #222', height:'fit-content' };
-const addBtn: React.CSSProperties = { background:'#111', border:'1px solid #222', color:'#444', fontSize:'9px', padding:'5px 10px', borderRadius:'5px' };
-const ingRow: React.CSSProperties = { display:'flex', alignItems:'center', background:'#000', padding:'8px 12px', borderRadius:'8px', border:'1px solid #111', marginBottom:'5px', gap:'10px' };
-const selectStyle: React.CSSProperties = { background:'transparent', border:'none', color:'#ccc', fontSize:'11px', flex:1, outline:'none' };
-const qtyInput: React.CSSProperties = { background:'transparent', border:'none', color:'#f39c12', fontSize:'14px', width:'45px', textAlign:'right', outline:'none', fontWeight:'bold' };
-const footerStyle: React.CSSProperties = { marginTop:'20px', paddingBottom:'80px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' };
-const cfgCard: React.CSSProperties = { background:'#080808', padding:'8px', borderRadius:'8px', border:'1px solid #111' };
-const cfgLabel: React.CSSProperties = { fontSize:'7px', color:'#333', display:'block', marginBottom:'2px' };
-const cfgInp: React.CSSProperties = { background:'transparent', border:'none', color:'#fff', width:'100%', fontSize:'13px', outline:'none' };
-const modeBtn: React.CSSProperties = { gridColumn:'span 2', background:'#111', border:'1px solid #333', color:'#666', padding:'10px', borderRadius:'8px', fontSize:'10px' };
-const miniBtn: React.CSSProperties = { background:'#000', border:'1px solid #222', color:'#444', fontSize:'8px', padding:'3px 6px', borderRadius:'4px' };
+const cardStyle: React.CSSProperties = { background:'#080808', padding:'18px', borderRadius:'18px', border:'1px solid #151515' };
+const stepHeader: React.CSSProperties = { display:'flex', justifyContent:'space-between', marginBottom:'15px', alignItems:'flex-start' };
+const stepTitle: React.CSSProperties = { color:'#f39c12', fontWeight:'900', fontSize:'14px', letterSpacing:'1px', marginBottom:'4px' };
+const gaugeWrapper: React.CSSProperties = { marginTop:'10px', width:'90%' };
+const gaugeText: React.CSSProperties = { fontSize:'9px', color:'#666', marginBottom:'4px', fontWeight:'bold' };
+const subInfo: React.CSSProperties = { fontSize:'10px', color:'#888', marginTop:'6px', textTransform:'uppercase', letterSpacing:'0.5px' };
+const highlight: React.CSSProperties = { color:'#f39c12', fontWeight:'bold' };
+const tempBadge: React.CSSProperties = { background:'#111', padding:'5px 10px', borderRadius:'6px', fontSize:'11px', color:'#f39c12', border:'1px solid #222', fontWeight:'900' };
+const addBtn: React.CSSProperties = { background:'#111', border:'1px solid #222', color:'#666', fontSize:'10px', padding:'6px 12px', borderRadius:'7px', cursor:'pointer' };
+const ingRow: React.CSSProperties = { display:'flex', alignItems:'center', background:'#000', padding:'10px 14px', borderRadius:'10px', border:'1px solid #111', marginBottom:'8px', gap:'10px' };
+const selectStyle: React.CSSProperties = { background:'transparent', border:'none', color:'#bbb', fontSize:'12px', flex:1, outline:'none' };
+const qtyInput: React.CSSProperties = { background:'transparent', border:'none', color:'#f39c12', fontSize:'16px', width:'55px', textAlign:'right', outline:'none', fontWeight:'900' };
+const unitStyle: React.CSSProperties = { fontSize:'9px', color:'#444', fontWeight:'bold' };
+const footerStyle: React.CSSProperties = { marginTop:'30px', paddingBottom:'80px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' };
+const cfgCard: React.CSSProperties = { background:'#080808', padding:'10px', borderRadius:'10px', border:'1px solid #111' };
+const cfgLabel: React.CSSProperties = { fontSize:'8px', color:'#555', display:'block', marginBottom:'4px', fontWeight:'bold' };
+const cfgInp: React.CSSProperties = { background:'transparent', border:'none', color:'#fff', width:'100%', fontSize:'15px', outline:'none', fontWeight:'bold' };
+const modeBtn: React.CSSProperties = { gridColumn:'span 2', background:'#111', border:'1px solid #333', color:'#888', padding:'12px', borderRadius:'10px', fontSize:'11px', fontWeight:'bold', letterSpacing:'1px' };
+const miniBtn: React.CSSProperties = { border:'1px solid #333', fontSize:'9px', padding:'4px 10px', borderRadius:'6px', cursor:'pointer', fontWeight:'bold' };
 
 function getBeerColor(ebc: number) {
   if (ebc <= 8) return "#F5F75C";
