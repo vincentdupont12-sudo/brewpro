@@ -3,123 +3,158 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabaseClient";
 
-export default function BrewMasterPotes() {
-  // On force l'état initial à "home"
-  const [view, setView] = useState("home");
+export default function BrewMasterPro() {
+  const [view, setView] = useState("dashboard");
   const [recipes, setRecipes] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [inventory, setInventory] = useState<any[]>([]);
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
 
-  // --- FORCE LE RETOUR À L'ACCUEIL AU REFRESH ---
   useEffect(() => {
-    const init = async () => {
-      setView("home"); // On s'assure d'être sur l'accueil
-      setSelected(null);
-      await fetchData();
-    };
-    init();
+    fetchData();
   }, []);
 
   const fetchData = async () => {
-    const { data: r } = await supabase.from('recipes').select('*').order('updated_at', { ascending: false });
-    const { data: i } = await supabase.from('inventory').select('*').order('name');
+    const { data: r } = await supabase.from("recipes").select("*");
+    const { data: i } = await supabase.from("inventory").select("*");
     if (r) setRecipes(r);
     if (i) setInventory(i);
   };
 
   return (
-    <div className="min-h-screen bg-black text-zinc-300 font-mono p-4 uppercase italic">
-      <div className="max-w-xl mx-auto">
-        
-        {/* --- VUE ACCUEIL --- */}
-        {view === "home" && (
-          <div className="pt-20">
-            <h1 className="text-[60px] font-black text-white leading-[0.85] mb-16 tracking-tighter italic">
-              BREW<br/><span className="text-yellow-500">CONTROL_</span>
-            </h1>
-            <div className="grid gap-4">
-              <button onClick={() => setView("library")} className="bg-white text-black p-8 font-black text-2xl hover:bg-yellow-500 text-left flex justify-between group">
-                <span>LANCER_BRASSIN</span><span>→</span>
-              </button>
-              <button onClick={() => setView("stock")} className="border border-zinc-800 p-8 font-black text-zinc-600 text-xl text-left hover:text-white">
-                INVENTAIRE_MP
-              </button>
+    <div className="flex h-screen bg-zinc-950 text-white">
+      {/* SIDEBAR */}
+      <aside className="w-64 bg-black border-r border-zinc-800 p-6 flex flex-col justify-between">
+        <div>
+          <h1 className="text-2xl font-black tracking-tight mb-10">
+            BREW<span className="text-yellow-500">.PRO</span>
+          </h1>
+
+          <nav className="space-y-2 text-sm">
+            <button onClick={() => setView("dashboard")} className="w-full text-left p-3 rounded hover:bg-zinc-800">Dashboard</button>
+            <button onClick={() => setView("recipes")} className="w-full text-left p-3 rounded hover:bg-zinc-800">Recipes</button>
+            <button onClick={() => setView("inventory")} className="w-full text-left p-3 rounded hover:bg-zinc-800">Inventory</button>
+          </nav>
+        </div>
+
+        <div className="text-xs text-zinc-500">v1.0 BREW SYSTEM</div>
+      </aside>
+
+      {/* MAIN */}
+      <main className="flex-1 p-10 overflow-y-auto">
+
+        {/* DASHBOARD */}
+        {view === "dashboard" && (
+          <div className="space-y-10">
+            <h2 className="text-3xl font-bold">Dashboard</h2>
+
+            <div className="grid grid-cols-3 gap-6">
+              <Card title="Recipes" value={recipes.length} />
+              <Card title="Ingredients" value={inventory.length} />
+              <Card title="Active Brew" value={selected ? 1 : 0} />
             </div>
           </div>
         )}
 
-        {/* --- VUE BIBLIOTHÈQUE --- */}
-        {view === "library" && (
-          <div className="space-y-4">
-            {/* BOUTON RETOUR MANQUANT AJOUTÉ ICI */}
-            <button onClick={() => setView("home")} className="bg-zinc-900 text-white px-4 py-2 text-[10px] font-black mb-6 hover:bg-zinc-800 border border-zinc-800">
-              ← RETOUR_MENU_PRINCIPAL
-            </button>
-            
-            <h2 className="text-xl font-black text-zinc-500 mb-6 italic">SÉLECTIONNER_UNE_RECETTE :</h2>
-            {recipes.map(r => (
-              <button key={r.id} onClick={() => { setSelected(r); setView("detail"); }} className="w-full bg-zinc-950 border border-zinc-900 p-6 text-left hover:border-yellow-500 transition-colors">
-                <div className="text-[8px] text-zinc-600 mb-1">{r.data?.stats_json?.abv}% ABV | {r.data?.stats_json?.ebc} EBC</div>
-                <div className="text-xl font-black text-white uppercase">{r.name}</div>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* --- VUE DÉTAIL BRASSAGE --- */}
-        {view === "detail" && selected && (
+        {/* RECIPES */}
+        {view === "recipes" && (
           <div>
-            {/* BOUTON RETOUR BRASSAGE */}
-            <button onClick={() => { setView("library"); setCompletedSteps([]); }} className="bg-zinc-900 text-white px-4 py-2 text-[10px] font-black mb-8 border border-zinc-800">
-              ← QUITTER_LE_BRASSIN
-            </button>
-            
-            <h2 className="text-4xl font-black text-white mb-10 tracking-tighter italic border-b border-zinc-900 pb-4">{selected.name}</h2>
-            
-            <div className="space-y-12">
-              {selected.data?.steps_json?.map((step: any) => (
-                <div key={step.id} className={`pl-6 border-l-2 ${completedSteps.includes(step.id) ? 'border-zinc-800 opacity-20' : 'border-yellow-500'}`}>
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <h3 className="text-xl font-black text-white uppercase">{step.label}</h3>
-                            {step.temp && <p className="text-blue-400 text-sm font-black italic">{step.temp}°C | {step.durationInMinutes} MIN</p>}
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          className="w-8 h-8 accent-yellow-500 cursor-pointer" 
-                          onChange={() => setCompletedSteps(p => p.includes(step.id) ? p.filter(x => x!==step.id) : [...p, step.id])} 
-                        />
-                    </div>
+            <h2 className="text-3xl font-bold mb-6">Recipes</h2>
+
+            <div className="grid grid-cols-2 gap-6">
+              {recipes.map((r) => (
+                <div
+                  key={r.id}
+                  onClick={() => {
+                    setSelected(r);
+                    setView("brew");
+                  }}
+                  className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 hover:border-yellow-500 cursor-pointer transition"
+                >
+                  <div className="text-lg font-bold">{r.name}</div>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* --- VUE STOCK --- */}
-        {view === "stock" && (
-            <div>
-                <button onClick={() => setView("home")} className="bg-zinc-900 text-white px-4 py-2 text-[10px] font-black mb-8 border border-zinc-800">
-                  ← RETOUR_ACCUEIL
-                </button>
-                <h2 className="text-2xl font-black text-white italic mb-10">RÉSERVES_MATIÈRES_PREMIÈRES</h2>
-                <div className="grid gap-3">
-                    {inventory.map(item => (
-                        <div key={item.id} className="bg-zinc-950 p-6 border border-zinc-900 flex justify-between items-center">
-                            <div>
-                                <div className="font-black text-white text-lg">{item.name}</div>
-                                <div className="text-[8px] text-zinc-600 italic uppercase">{item.type}</div>
-                            </div>
-                            <div className="text-2xl font-black text-white tabular-nums">
-                                {item.quantity.toFixed(1)} <span className="text-[10px] text-zinc-700">{item.unit || 'KG'}</span>
-                            </div>
+        {/* BREW VIEW */}
+        {view === "brew" && selected && (
+          <div>
+            <button onClick={() => setView("recipes")} className="mb-6 text-sm text-zinc-400">← Back</button>
+
+            <h2 className="text-3xl font-bold mb-10">{selected.name}</h2>
+
+            <div className="space-y-6">
+              {selected.data?.steps_json?.map((step: any) => (
+                <div
+                  key={step.id}
+                  className={`p-6 rounded-lg border transition ${
+                    completedSteps.includes(step.id)
+                      ? "bg-zinc-800 border-zinc-700 opacity-40"
+                      : "bg-zinc-900 border-zinc-700"
+                  }`}
+                >
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <div className="font-bold">{step.label}</div>
+                      {step.temp && (
+                        <div className="text-sm text-cyan-400">
+                          {step.temp}°C · {step.durationInMinutes} min
                         </div>
-                    ))}
+                      )}
+                    </div>
+
+                    <input
+                      type="checkbox"
+                      className="w-6 h-6"
+                      onChange={() =>
+                        setCompletedSteps((p) =>
+                          p.includes(step.id)
+                            ? p.filter((x) => x !== step.id)
+                            : [...p, step.id]
+                        )
+                      }
+                    />
+                  </div>
                 </div>
+              ))}
             </div>
+          </div>
         )}
-      </div>
+
+        {/* INVENTORY */}
+        {view === "inventory" && (
+          <div>
+            <h2 className="text-3xl font-bold mb-6">Inventory</h2>
+
+            <div className="grid grid-cols-2 gap-6">
+              {inventory.map((item) => (
+                <div
+                  key={item.id}
+                  className="bg-zinc-900 p-6 rounded-xl border border-zinc-800"
+                >
+                  <div className="font-bold">{item.name}</div>
+                  <div className="text-sm text-zinc-400">{item.type}</div>
+                  <div className="text-xl mt-2">
+                    {item.quantity} {item.unit}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 }
+
+function Card({ title, value }: { title: string; value: number }) {
+  return (
+    <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800">
+      <div className="text-sm text-zinc-400">{title}</div>
+      <div className="text-3xl font-bold mt-2">{value}</div>
+    </div>
+  );
+}
+
