@@ -1,44 +1,42 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { supabase } from "../../../lib/supabaseClient";
+import { supabase } from "../../lib/supabaseClient";
 
-// --- TYPES ---
-interface Ingredient {
-  id: number;
-  type: "MALT" | "HOP" | "YEAST" | "SALT" | "SUCRE";
-  name: string;
-  qty: number;
-  ebc?: number;
-  alpha?: number;
-  time?: number;
-}
-
-interface Step {
-  id: string;
-  label: string;
-  temp?: number;
-  durationInMinutes: number;
-  remainingSeconds: number;
-  isRunning: boolean;
-  ingredients: Ingredient[];
-  desc?: string;
-}
-
-export default function SuperLaboPage() {
+export default function SuperLaboExpert() {
   const [dbInventory, setDbInventory] = useState<any[]>([]);
-  const [recipeName, setRecipeName] = useState("NOUVELLE_RECETTE_V1");
-  const [config, setConfig] = useState({ volume: 20, efficiency: 75, targetIBU: 50 });
-  const [steps, setSteps] = useState<Step[]>([
-    { id: "s1", label: "CONCASSAGE", durationInMinutes: 0, remainingSeconds: 0, isRunning: false, ingredients: [] },
-    { id: "s_salt", label: "AJUSTEMENT DES SELS", durationInMinutes: 0, remainingSeconds: 0, isRunning: false, ingredients: [], desc: "Cible : Équilibrer le ratio Sulfate/Chlorure" },
-    { id: "s2", label: "EMPÂTAGE", temp: 67, durationInMinutes: 60, remainingSeconds: 3600, isRunning: false, ingredients: [], desc: "Conversion de l'amidon" },
-    { id: "s4", label: "ÉBULLITION", durationInMinutes: 60, remainingSeconds: 3600, isRunning: false, ingredients: [] },
+  const [recipeName, setRecipeName] = useState("BRASSIN_MULTI_PALIERS");
+  const [volFinal, setVolFinal] = useState(20);
+  const [resucrageDosage, setResucrageDosage] = useState(7);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // État initial avec paliers types
+  const [steps, setSteps] = useState<any[]>([
+    { id: "step-1", label: "CONCASSAGE", durationInMinutes: 0, remainingSeconds: 0, isRunning: false, ingredients: [] },
+    { id: "mash-1", label: "PALIER_MASH", temp: 65, durationInMinutes: 60, remainingSeconds: 3600, isRunning: false, ingredients: [] },
+    { id: "boil-1", label: "ÉBULLITION", durationInMinutes: 60, remainingSeconds: 3600, isRunning: false, ingredients: [] },
   ]);
 
-  const [stats, setStats] = useState({ abv: 0, ebc: 0, ibu: 0, og: 1.0, maltTotal: 0, hopTotal: 0, waterE: 0, waterR: 0 });
+  const [stats, setStats] = useState({ abv: 0, ebc: 0, ibu: 0, maltTotal: 0, hopTotal: 0, waterE: 0, waterR: 0, sucreBouteille: 0 });
 
-  // --- CHARGEMENT INVENTAIRE ---
+  const parseNum = (val: string) => parseFloat(val.replace(',', '.')) || 0;
+
+  // --- LOGIQUE PÉDAGOGIQUE ---
+  const getTempInfo = (temp: number) => {
+    if (temp >= 45 && temp <= 55) return "PROTÉINIQUE : Améliore la tenue de mousse et l'azote.";
+    if (temp >= 60 && temp <= 65) return "BÊTA-AMYLASE : Favorise les sucres fermentescibles (Bière sèche/Alcool).";
+    if (temp >= 67 && temp <= 72) return "ALPHA-AMYLASE : Favorise les sucres non-fermentescibles (Corps/Rondeur).";
+    if (temp >= 75 && temp <= 78) return "MASH-OUT : Désactive les enzymes, facilite la filtration.";
+    return "Palier personnalisé.";
+  };
+
+  // --- CALCULS DES RATIONS CONSEILLÉES (basé sur volFinal) ---
+  const advice = {
+    levure: (volFinal * 0.5).toFixed(1) + "g à " + (volFinal * 1).toFixed(1) + "g", // 0.5g à 1g par litre
+    houblon: (volFinal * 3).toFixed(0) + "g total (base)",
+    ratioEau: (stats.maltTotal * 3).toFixed(1) + "L min."
+  };
+
   useEffect(() => {
     const getInv = async () => {
       const { data } = await supabase.from('inventory').select('*').order('name');
@@ -47,188 +45,176 @@ export default function SuperLaboPage() {
     getInv();
   }, []);
 
-  // --- CALCULS DYNAMIQUES ---
   const runCalculations = useCallback(() => {
-    let pts = 0, mcu = 0, ibuTotal = 0, maltTotal = 0, hopTotal = 0;
-    const vol = config.volume || 1;
-
+    let mTotal = 0, hTotal = 0, mcu = 0, ibuTotal = 0;
     steps.forEach(s => {
-      s.ingredients.forEach(ing => {
-        const q = parseFloat(ing.qty as any) || 0;
+      s.ingredients.forEach((ing: any) => {
         if (ing.type === "MALT") {
-          maltTotal += q;
-          const ebc = ing.ebc || 0;
-          mcu += (q * 2.204 * (ebc * 0.508)) / (vol * 0.264);
-          pts += q * 300 * (0.80) * (config.efficiency / 100); // Base rendement 80%
+          mTotal += ing.qty;
+          mcu += (ing.qty * 2.204 * ((ing.ebc || 0) * 0.508)) / (volFinal * 0.264);
         }
-        if (ing.type === "HOP") {
-          hopTotal += q;
-          const ogG = 1 + (pts / vol) / 1000;
-          const util = 1.65 * Math.pow(0.000125, ogG - 1) * ((1 - Math.exp(-0.04 * (ing.time || 60))) / 4.15);
-          ibuTotal += (((ing.alpha || 0) / 100) * (q * 1000) / vol) * util;
+        if (ing.type === "HOUBLON") {
+          hTotal += ing.qty;
+          ibuTotal += (ing.qty * (ing.alpha || 0) * 0.25) / (volFinal / 10);
         }
       });
     });
-
-    const og = 1 + (pts / vol) / 1000;
     setStats({
-      og,
+      maltTotal: mTotal, hopTotal: hTotal,
       ebc: Math.round(1.49 * Math.pow(mcu, 0.68) * 1.97) || 0,
-      abv: parseFloat(((og - 1) * 131.25 * 0.75).toFixed(1)),
-      ibu: Math.round(ibuTotal),
-      maltTotal,
-      hopTotal,
-      waterE: parseFloat((maltTotal * 2.8).toFixed(1)),
-      waterR: parseFloat(((vol * 1.15) - (maltTotal * 0.8)).toFixed(1)),
+      ibu: Math.round(ibuTotal) || 0,
+      abv: parseFloat(((mTotal * 0.15) / (volFinal/20)).toFixed(1)),
+      waterE: parseFloat((mTotal * 3).toFixed(1)),
+      waterR: parseFloat((volFinal * 1.25).toFixed(1)),
+      sucreBouteille: parseFloat((volFinal * resucrageDosage).toFixed(1))
     });
-  }, [steps, config]);
+  }, [steps, volFinal, resucrageDosage]);
 
   useEffect(() => { runCalculations(); }, [runCalculations]);
 
-  // --- AJOUT DYNAMIQUE DEPUIS STOCK ---
-  const addIngredientFromStock = (sIdx: number, itemName: string) => {
-    const item = dbInventory.find(i => i.name === itemName);
-    if (!item) return;
-
-    const n = [...steps];
-    const newIng: Ingredient = {
-      id: Date.now(),
-      name: item.name,
-      type: item.type === "HOUBLON" ? "HOP" : item.type as any,
-      qty: 0,
-      ebc: item.metadata?.ebc || 0,
-      alpha: item.metadata?.alpha || 0,
-      time: 60
-    };
-    n[sIdx].ingredients.push(newIng);
-    setSteps(n);
+  // Ajouter un palier de mash dynamiquement
+  const addMashStep = () => {
+    const newStep = { id: `mash-${Date.now()}`, label: "NOUVEAU_PALIER", temp: 68, durationInMinutes: 15, remainingSeconds: 900, isRunning: false, ingredients: [] };
+    const boilIdx = steps.findIndex(s => s.label.includes("ÉBULLITION"));
+    const newSteps = [...steps];
+    newSteps.splice(boilIdx, 0, newStep);
+    setSteps(newSteps);
   };
 
-  const handleSave = async () => {
-    const { error } = await supabase.from("recipes").upsert({ 
-        name: recipeName, 
-        data: { steps_json: steps, stats_json: stats, config_json: config } 
+  const saveRecipe = async () => {
+    setIsSaving(true);
+    const { error } = await supabase.from('recipes').upsert({ 
+      name: recipeName, 
+      data: { steps_json: steps, stats_json: stats, config: { volFinal, resucrageDosage } } 
     }, { onConflict: 'name' });
-    error ? alert("Erreur") : alert("✅ Envoyé aux Potes");
+    setIsSaving(false);
+    alert(error ? "Erreur" : "✅ ENVOYÉ AUX POTES");
   };
 
   return (
-    <div style={containerStyle}>
-      {/* HEADER : NOM + VOLUME DYNAMIQUE */}
-      <header style={headerStyle}>
-        <div style={{ flex: 1 }}>
-          <input value={recipeName} onChange={e => setRecipeName(e.target.value)} style={titleInp} />
-          <div style={{ color: '#555', fontSize: '10px' }}>LABO_CREATION_V4</div>
+    <div className="min-h-screen bg-black text-white font-mono p-6 pb-40">
+      
+      {/* HEADER & VOL FINAL */}
+      <header className="border-b border-zinc-800 pb-6 mb-8 flex justify-between items-end">
+        <div className="flex-1">
+          <input className="bg-transparent text-4xl font-black outline-none border-b border-zinc-800 focus:border-yellow-500 w-full" value={recipeName} onChange={e => setRecipeName(e.target.value)} />
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <div className="bg-zinc-950 p-2 border border-zinc-900">
+                <span className="text-[7px] text-zinc-500 block">EAU_EMPATAGE</span>
+                <span className="text-blue-400 font-black text-xs">{stats.waterE} L</span>
+            </div>
+            <div className="bg-zinc-950 p-2 border border-zinc-900">
+                <span className="text-[7px] text-zinc-500 block">EAU_RINÇAGE</span>
+                <span className="text-cyan-400 font-black text-xs">{stats.waterR} L</span>
+            </div>
+            <div className="bg-zinc-950 p-2 border border-zinc-900">
+                <span className="text-[7px] text-zinc-500 block">CONSEIL_LEVURE</span>
+                <span className="text-green-500 font-black text-xs">{advice.levure}</span>
+            </div>
+          </div>
         </div>
-        <div style={volSelector}>
-          <label style={cfgLab}>VOLUME_FINAL (L)</label>
-          <input type="number" value={config.volume} onChange={e => setConfig({...config, volume: +e.target.value})} style={volInp} />
+        <div className="ml-8 text-right">
+          <label className="text-[8px] text-zinc-600 block mb-1 font-black italic">VOLUME_CIBLE</label>
+          <div className="flex items-center gap-2 bg-zinc-900 p-2 border border-zinc-800">
+            <input type="text" className="bg-transparent text-2xl font-black text-yellow-500 w-16 text-right outline-none" value={volFinal} onChange={e => setVolFinal(parseNum(e.target.value))} />
+            <span className="text-zinc-700 font-black">L</span>
+          </div>
         </div>
       </header>
 
-      {/* DASHBOARD STATS & JAUGES */}
-      <div style={statGrid}>
-        <div style={statBox}>
-          <span style={statLabel}>ABV / OG</span>
-          <div style={statVal}>{stats.abv}% <span style={{fontSize:'12px', color:'#444'}}>{stats.og.toFixed(3)}</span></div>
-        </div>
-        <div style={statBox}>
-          <span style={statLabel}>IBU / EBC</span>
-          <div style={statVal}>{stats.ibu} / {stats.ebc}</div>
-          <div style={track}><div style={{...bar, width:`${(stats.ebc/50)*100}%`, backgroundColor: getBeerColor(stats.ebc)}} /></div>
-        </div>
-        <div style={statBox}>
-          <span style={statLabel}>CHARGE_MALT (KG)</span>
-          <div style={statVal}>{stats.maltTotal.toFixed(2)}</div>
-          <div style={track}><div style={{...bar, width:`${(stats.maltTotal/10)*100}%`, backgroundColor: '#e67e22'}} /></div>
-        </div>
-        <div style={statBox}>
-          <span style={statLabel}>CHARGE_HOUBLON (G)</span>
-          <div style={statVal}>{stats.hopTotal}</div>
-          <div style={track}><div style={{...bar, width:`${(stats.hopTotal/200)*100}%`, backgroundColor: '#27ae60'}} /></div>
-        </div>
-      </div>
-
-      {/* ÉTAPES */}
-      <main style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+      {/* ETAPES */}
+      <div className="space-y-6">
         {steps.map((step, sIdx) => (
-          <div key={step.id} style={card}>
-            <div style={cardHeader}>
-              <span style={stepTitle}>{step.label}</span>
-              {step.temp && <span style={tempTag}>{step.temp}°C</span>}
-            </div>
-            
-            {/* SÉLECTEUR D'INGRÉDIENTS DEPUIS LE STOCK */}
-            <div style={{marginBottom:'10px'}}>
-                <select 
-                    style={stockSelect}
-                    onChange={(e) => { if(e.target.value) addIngredientFromStock(sIdx, e.target.value); e.target.value=""; }}
-                >
-                    <option value="">+ AJOUTER_DEPUIS_STOCK...</option>
-                    {dbInventory.map(item => (
-                        <option key={item.id} value={item.name}>{item.name} ({item.type})</option>
-                    ))}
-                </select>
+          <div key={step.id} className="bg-zinc-950 border border-zinc-900 p-6 relative group">
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex items-center gap-4">
+                <span className="text-zinc-800 font-black text-3xl italic">0{sIdx+1}</span>
+                <input className="bg-transparent font-black text-xl uppercase outline-none" value={step.label} onChange={e => {const n=[...steps]; n[sIdx].label=e.target.value; setSteps(n)}} />
+              </div>
+              <button onClick={() => {const n=[...steps]; n.splice(sIdx,1); setSteps(n)}} className="opacity-0 group-hover:opacity-100 text-red-900 text-[10px] font-black underline transition-opacity">SUPPRIMER_ETAPE</button>
             </div>
 
-            {step.ingredients.map((ing, iIdx) => (
-              <div key={ing.id} style={ingRow}>
-                <div style={{flex:1}}>
-                    <div style={ingName}>{ing.name}</div>
-                    <div style={ingMeta}>
-                        {ing.type === "MALT" ? `EBC: ${ing.ebc}` : `ALPHA: ${ing.alpha}%`}
+            {/* GESTION TEMPERATURE & DUREE */}
+            {(step.label.includes("PALIER") || step.label.includes("MASH") || step.label.includes("ÉBULLITION")) && (
+              <div className="mb-6">
+                <div className="flex gap-4">
+                    {step.label.includes("PALIER") || step.label.includes("MASH") ? (
+                        <div className="flex-1">
+                            <label className="text-[7px] text-zinc-600 font-black mb-1 block">TEMPÉRATURE (°C)</label>
+                            <input type="text" className="w-full bg-zinc-900 p-3 text-blue-400 font-black outline-none border border-zinc-800" value={step.temp} onChange={e => {const n=[...steps]; n[sIdx].temp=parseNum(e.target.value); setSteps(n)}} />
+                        </div>
+                    ) : null}
+                    <div className="flex-1">
+                        <label className="text-[7px] text-zinc-600 font-black mb-1 block">DURÉE (MIN)</label>
+                        <input type="text" className="w-full bg-zinc-900 p-3 text-white font-black outline-none border border-zinc-800" value={step.durationInMinutes} onChange={e => {const n=[...steps]; n[sIdx].durationInMinutes=parseNum(e.target.value); n[sIdx].remainingSeconds=(n[sIdx].durationInMinutes*60); setSteps(n)}} />
                     </div>
                 </div>
-                <input type="number" value={ing.qty} onChange={e => {const n=[...steps]; n[sIdx].ingredients[iIdx].qty=+e.target.value; setSteps(n)}} style={ingVal} />
-                <span style={unit}>{ing.type === "MALT" ? "kg" : "g"}</span>
-                <button onClick={() => {const n=[...steps]; n[sIdx].ingredients.splice(iIdx,1); setSteps(n)}} style={delBtn}>×</button>
+                {step.temp && (
+                    <p className="mt-2 text-[9px] text-zinc-500 italic bg-black/50 p-2 border-l border-zinc-700">
+                        💡 {getTempInfo(step.temp)}
+                    </p>
+                )}
               </div>
-            ))}
+            )}
+
+            {/* INGREDIENTS */}
+            <div className="space-y-2">
+              <select 
+                className="w-full bg-zinc-900 border border-zinc-800 p-2 text-[10px] text-zinc-600 font-black outline-none uppercase"
+                onChange={(e) => {
+                  const item = dbInventory.find(i => i.name === e.target.value);
+                  if (item) {
+                    const n = [...steps];
+                    n[sIdx].ingredients.push({ id: Date.now(), name: item.name, type: item.type, qty: 0, ebc: item.metadata?.ebc, alpha: item.metadata?.alpha });
+                    setSteps(n);
+                  }
+                }}
+              >
+                <option value="">+ AJOUTER_STOCK ({step.label.includes("ÉBULLITION") ? "HOUBLON" : "MALT/AUTRE"})</option>
+                {dbInventory
+                  .filter(i => {
+                    if(step.label.includes("ÉBULLITION")) return i.type === "HOUBLON";
+                    if(step.label.includes("PALIER") || step.label.includes("MASH")) return i.type === "MALT";
+                    return true;
+                  })
+                  .map(i => <option key={i.id} value={i.name}>{i.name} ({i.type})</option>)
+                }
+              </select>
+
+              {step.ingredients.map((ing: any, iIdx: number) => (
+                <div key={ing.id} className="flex items-center gap-3 bg-black/40 p-2 border border-zinc-900">
+                  <span className="flex-1 text-[11px] font-bold text-zinc-400">{ing.name}</span>
+                  <input type="text" className="bg-transparent border-b border-zinc-800 w-16 text-right text-yellow-500 font-black outline-none" placeholder="0.0" 
+                    onChange={e => {const n=[...steps]; n[sIdx].ingredients[iIdx].qty=parseNum(e.target.value); setSteps(n)}} />
+                  <span className="text-[8px] text-zinc-700 font-black uppercase">{ing.type === 'MALT' ? 'KG' : 'G'}</span>
+                  <button onClick={() => {const n=[...steps]; n[sIdx].ingredients.splice(iIdx,1); setSteps(n)}} className="text-red-900 px-2 font-black text-xs">×</button>
+                </div>
+              ))}
+            </div>
           </div>
         ))}
-      </main>
+        
+        <button onClick={addMashStep} className="w-full border-2 border-dashed border-zinc-800 p-4 text-[10px] font-black text-zinc-600 hover:text-white hover:border-zinc-500 transition-all uppercase italic">
+            + INSÉRER_UN_PALIER_MASH_INTERMÉDIAIRE
+        </button>
+      </div>
 
-      <footer style={footerStyle}>
-        <div style={{fontSize:'10px', color:'#444'}}>
-            EAU_MASH: {stats.waterE}L | EAU_RINSE: {stats.waterR}L
+      {/* FOOTER STATS & SAVE */}
+      <footer className="fixed bottom-0 left-0 right-0 p-4 bg-black/90 backdrop-blur-xl border-t border-zinc-900 grid grid-cols-4 gap-4 z-50">
+        <div className="col-span-3 grid grid-cols-4 gap-2">
+            <div className="text-center border-r border-zinc-800"><span className="block text-[7px] text-zinc-600 uppercase">ABV%</span><span className="text-xl font-black">{stats.abv}</span></div>
+            <div className="text-center border-r border-zinc-800"><span className="block text-[7px] text-zinc-600 uppercase">EBC</span><span className="text-xl font-black text-yellow-600">{stats.ebc}</span></div>
+            <div className="text-center border-r border-zinc-800"><span className="block text-[7px] text-zinc-600 uppercase">IBU</span><span className="text-xl font-black text-red-600">{stats.ibu}</span></div>
+            <div className="text-center"><span className="block text-[7px] text-zinc-600 uppercase">SUCRE</span><span className="text-xl font-black text-cyan-600">{stats.sucreBouteille}G</span></div>
         </div>
-        <button onClick={handleSave} style={saveBtn}>CRÉER_FEUILLE_DE_MARCHE</button>
+        <button 
+          disabled={isSaving}
+          onClick={saveRecipe} 
+          className={`font-black uppercase italic text-[10px] ${isSaving ? 'bg-zinc-800' : 'bg-yellow-500'} text-black`}
+        >
+          {isSaving ? 'SYNC...' : 'ENVOYER'}
+        </button>
       </footer>
     </div>
   );
-}
-
-// --- STYLES ---
-const containerStyle: React.CSSProperties = { padding: "20px", backgroundColor: "#000", color: "#fff", minHeight: "100vh", fontFamily: "monospace", paddingBottom:'120px' };
-const headerStyle: React.CSSProperties = { display:'flex', alignItems:'center', marginBottom:'30px', borderBottom:'1px solid #111', paddingBottom:'20px' };
-const volSelector: React.CSSProperties = { background:'#080808', padding:'10px', border:'1px solid #222', textAlign:'right' };
-const volInp: React.CSSProperties = { background:'transparent', border:'none', color:'#f39c12', fontSize:'24px', fontWeight:'900', width:'60px', textAlign:'right', outline:'none' };
-const titleInp: React.CSSProperties = { background:'transparent', border:'none', color:'#fff', fontSize:'24px', fontWeight:'900', outline:'none', width:'100%' };
-const statGrid: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' };
-const statBox: React.CSSProperties = { background:'#050505', padding:'15px', border:'1px solid #111' };
-const statLabel: React.CSSProperties = { fontSize:'8px', color:'#444', display:'block', marginBottom:'5px' };
-const statVal: React.CSSProperties = { fontSize:'20px', fontWeight:'900' };
-const track: React.CSSProperties = { height:'2px', background:'#111', marginTop:'8px' };
-const bar: React.CSSProperties = { height:'100%', transition:'0.5s' };
-const card: React.CSSProperties = { background:'#050505', padding:'15px', border:'1px solid #111' };
-const cardHeader: React.CSSProperties = { display:'flex', justifyContent:'space-between', marginBottom:'15px', borderBottom:'1px solid #111', paddingBottom:'5px' };
-const stepTitle: React.CSSProperties = { color:'#f39c12', fontWeight:'900', fontSize:'14px' };
-const stockSelect: React.CSSProperties = { width:'100%', background:'#111', border:'1px solid #222', color:'#666', padding:'8px', fontSize:'10px', outline:'none' };
-const ingRow: React.CSSProperties = { display:'flex', alignItems:'center', padding:'10px 0', borderBottom:'1px solid #111' };
-const ingName: React.CSSProperties = { fontSize:'12px', fontWeight:'bold', color:'#ddd' };
-const ingMeta: React.CSSProperties = { fontSize:'9px', color:'#444' };
-const ingVal: React.CSSProperties = { background:'#111', border:'none', color:'#f39c12', fontSize:'16px', width:'60px', textAlign:'right', fontWeight:'900', outline:'none' };
-const unit: React.CSSProperties = { fontSize:'10px', color:'#333', marginLeft:'5px', width:'20px' };
-const delBtn: React.CSSProperties = { color:'#cc0000', background:'none', border:'none', fontSize:'20px', marginLeft:'10px', cursor:'pointer' };
-const saveBtn: React.CSSProperties = { background:'#f39c12', color:'#000', border:'none', padding:'15px 30px', fontWeight:'900', fontSize:'12px', cursor:'pointer' };
-const footerStyle: React.CSSProperties = { position:'fixed', bottom:0, left:0, right:0, background:'#000', padding:'20px', borderTop:'1px solid #111', display:'flex', justifyContent:'space-between', alignItems:'center' };
-const tempTag: React.CSSProperties = { color:'#3498db', fontWeight:'900' };
-const cfgLab: React.CSSProperties = { fontSize:'7px', color:'#444', display:'block' };
-
-function getBeerColor(ebc: number) {
-  if (ebc <= 8) return "#F5F75C";
-  if (ebc <= 15) return "#F1C40F";
-  if (ebc <= 25) return "#D4AC0D";
-  if (ebc <= 40) return "#8D4C17";
-  return "#1A0506";
 }
