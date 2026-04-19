@@ -1,189 +1,157 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { supabase } from "../../lib/supabaseClient";
+import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabaseClient";
 
-interface Ingredient {
-  id: number;
-  type: string;
-  name: string;
-  qty: number;
-  ebc?: number;
-  alpha?: number;
-}
+export default function BrewMasterPotes() {
+  const [view, setView] = useState("home");
+  const [recipes, setRecipes] = useState<any[]>([]);
+  const [selected, setSelected] = useState<any>(null);
+  const [inventory, setInventory] = useState<any[]>([]);
+  const [completedSteps, setCompletedSteps] = useState<string[]>([]);
+  const [showModal, setShowModal] = useState(false);
+  const [newItem, setNewItem] = useState({ name: "", type: "MALT", unit: "KG", quantity: 0 });
 
-interface Step {
-  id: string;
-  label: string;
-  temp?: number;
-  durationInMinutes: number;
-  remainingSeconds: number;
-  isRunning: boolean;
-  ingredients: Ingredient[];
-  target?: string;
-}
-
-export default function SuperLabo() {
-  const [dbInventory, setDbInventory] = useState<any[]>([]);
-  const [recipeName, setRecipeName] = useState("NOUVELLE_RECETTE_V2");
-  const [volFinal, setVolFinal] = useState(20);
-  const [resucrageDosage, setResucrageDosage] = useState(7);
-  
-  const [steps, setSteps] = useState<Step[]>([
-    { id: "s1", label: "CONCASSAGE", durationInMinutes: 0, remainingSeconds: 0, isRunning: false, ingredients: [] },
-    { id: "p1", label: "PALIER_PROTEINIQUE", temp: 50, durationInMinutes: 10, remainingSeconds: 600, isRunning: false, ingredients: [], target: "Rupture des protéines" },
-    { id: "p2", label: "BÊTA-AMYLASE", temp: 63, durationInMinutes: 40, remainingSeconds: 2400, isRunning: false, ingredients: [], target: "Sucres fermentescibles" },
-    { id: "p3", label: "ALPHA-AMYLASE", temp: 68, durationInMinutes: 20, remainingSeconds: 1200, isRunning: false, ingredients: [], target: "Corps et texture" },
-    { id: "s4", label: "ÉBULLITION", durationInMinutes: 60, remainingSeconds: 3600, isRunning: false, ingredients: [] },
-  ]);
-
-  const [stats, setStats] = useState({ abv: 0, ebc: 0, ibu: 0, maltTotal: 0, hopTotal: 0, waterE: 0, waterR: 0, sucreBouteille: 0 });
-
+  // FORCE RESET AU CHARGEMENT / REFRESH
   useEffect(() => {
-    const getInv = async () => {
-      const { data } = await supabase.from('inventory').select('*').order('name');
-      if (data) setDbInventory(data);
-    };
-    getInv();
+    setView("home");
+    setSelected(null);
+    fetchData();
   }, []);
 
-  const runCalculations = useCallback(() => {
-    let mTotal = 0, hTotal = 0, mcu = 0, ibuTotal = 0;
-    steps.forEach(s => {
-      s.ingredients.forEach(ing => {
-        if (ing.type === "MALT") {
-          mTotal += ing.qty;
-          mcu += (ing.qty * 2.204 * ((ing.ebc || 0) * 0.508)) / (volFinal * 0.264);
-        }
-        if (ing.type === "HOUBLON") {
-          hTotal += ing.qty;
-          ibuTotal += (ing.qty * (ing.alpha || 0) * 0.25) / (volFinal / 10);
-        }
-      });
-    });
-    setStats({
-      maltTotal: mTotal, hopTotal: hTotal,
-      ebc: Math.round(1.49 * Math.pow(mcu, 0.68) * 1.97) || 0,
-      ibu: Math.round(ibuTotal) || 0,
-      abv: parseFloat(((mTotal * 0.15) / (volFinal/20)).toFixed(1)),
-      waterE: parseFloat((mTotal * 3).toFixed(1)),
-      waterR: parseFloat((volFinal * 1.25).toFixed(1)),
-      sucreBouteille: parseFloat((volFinal * resucrageDosage).toFixed(1))
-    });
-  }, [steps, volFinal, resucrageDosage]);
+  const fetchData = async () => {
+    const [r, i] = await Promise.all([
+      supabase.from('recipes').select('*').order('updated_at', { ascending: false }),
+      supabase.from('inventory').select('*').order('name')
+    ]);
+    if (r.data) setRecipes(r.data);
+    if (i.data) setInventory(i.data);
+  };
 
-  useEffect(() => { runCalculations(); }, [runCalculations]);
-
-  const toggleTimer = (id: string) => setSteps(prev => prev.map(s => s.id === id ? { ...s, isRunning: !s.isRunning } : s));
-  const resetTimer = (id: string) => setSteps(prev => prev.map(s => s.id === id ? { ...s, remainingSeconds: s.durationInMinutes * 60, isRunning: false } : s));
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setSteps(prev => prev.map(s => (s.isRunning && s.remainingSeconds > 0) ? { ...s, remainingSeconds: s.remainingSeconds - 1 } : s));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
+  const consumeStock = async (ings: any[]) => {
+    if (!confirm("VALIDER LA CONSOMMATION DU STOCK ?")) return;
+    const updates = ings.map(ing => {
+      const item = inventory.find(i => i.name.toUpperCase() === ing.name.toUpperCase());
+      return item ? supabase.from('inventory').update({ quantity: item.quantity - ing.qty }).eq('id', item.id) : null;
+    }).filter(Boolean);
+    await Promise.all(updates);
+    fetchData();
+    alert("STOCK MIS À JOUR");
+  };
 
   return (
-    <div className="min-h-screen bg-black text-white font-mono p-6 pb-24">
-      <header className="border-b border-zinc-800 pb-6 mb-8 flex justify-between items-end">
-        <div>
-          <input className="bg-transparent text-4xl font-black outline-none border-b border-transparent focus:border-yellow-500" value={recipeName} onChange={e => setRecipeName(e.target.value)} />
-          <div className="text-zinc-500 text-[10px] mt-2 uppercase tracking-widest font-bold">
-            EAU: <span className="text-blue-500">{stats.waterE}L MASH</span> | <span className="text-cyan-500">{stats.waterR}L RINSE</span>
-          </div>
-        </div>
-        <div className="text-right">
-          <label className="text-[10px] text-zinc-600 block mb-1">VOL_FINAL</label>
-          <input type="number" className="bg-zinc-900 border border-zinc-800 text-2xl font-black text-yellow-500 w-20 p-1 text-right outline-none" value={volFinal} onChange={e => setVolFinal(+e.target.value)} />
-        </div>
-      </header>
-
-      <div className="grid grid-cols-4 gap-4 mb-8">
-        <div className="bg-zinc-950 border border-zinc-900 p-4">
-          <span className="text-[8px] text-zinc-500 block mb-1">MALT_KG</span>
-          <div className="text-2xl font-black">{stats.maltTotal.toFixed(1)}</div>
-          <div className="w-full h-1 bg-zinc-900 mt-2"><div className="h-full bg-orange-600" style={{width: `${(stats.maltTotal/10)*100}%`}} /></div>
-        </div>
-        <div className="bg-zinc-950 border border-zinc-900 p-4">
-          <span className="text-[8px] text-zinc-500 block mb-1">HOP_G</span>
-          <div className="text-2xl font-black">{stats.hopTotal}</div>
-          <div className="w-full h-1 bg-zinc-900 mt-2"><div className="h-full bg-green-600" style={{width: `${(stats.hopTotal/200)*100}%`}} /></div>
-        </div>
-        <div className="bg-zinc-950 border border-zinc-900 p-4 font-black"><span className="text-[8px] text-zinc-500 block mb-1">EBC</span><div className="text-2xl text-yellow-600">{stats.ebc}</div></div>
-        <div className="bg-zinc-950 border border-zinc-900 p-4 font-black"><span className="text-[8px] text-zinc-500 block mb-1">IBU</span><div className="text-2xl text-red-600">{stats.ibu}</div></div>
-      </div>
-
-      <div className="space-y-6">
-        {steps.map((step, sIdx) => (
-          <div key={step.id} className="bg-zinc-950 border border-zinc-900 p-6">
-            <div className="flex justify-between items-start mb-4">
-              <div className="flex items-center gap-4">
-                <span className="text-zinc-800 font-black text-2xl italic">0{sIdx+1}</span>
-                <input className="bg-transparent font-black text-xl uppercase outline-none" value={step.label} onChange={e => {const n=[...steps]; n[sIdx].label=e.target.value; setSteps(n)}} />
-              </div>
-              {step.durationInMinutes > 0 && (
-                <div className="flex items-center gap-3 bg-black p-2 border border-zinc-800 tabular-nums">
-                  <div className="text-xl font-black">{Math.floor(step.remainingSeconds/60)}:{String(step.remainingSeconds%60).padStart(2,'0')}</div>
-                  <button onClick={() => toggleTimer(step.id)} className={`px-2 py-1 text-[8px] font-black ${step.isRunning ? 'bg-red-600' : 'bg-green-600'}`}>{step.isRunning ? 'STOP' : 'START'}</button>
-                </div>
-              )}
+    <div className="min-h-screen bg-black text-zinc-300 font-mono p-4 uppercase italic">
+      <div className="max-w-xl mx-auto">
+        
+        {view === "home" && (
+          <div className="pt-20">
+            <div className="flex items-center gap-2 mb-4">
+                <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse" />
+                <span className="text-[10px] font-black text-zinc-600 tracking-widest">SYSTEM_ACTIVE</span>
             </div>
+            <h1 className="text-[60px] font-black text-white leading-[0.85] mb-16 tracking-tighter">BREW<br/><span className="text-yellow-500">CONTROL_</span></h1>
+            <div className="grid gap-4">
+              <button onClick={() => setView("library")} className="bg-white text-black p-8 font-black text-2xl hover:bg-yellow-500 text-left flex justify-between group transition-all">
+                <span>LANCER_BRASSIN</span><span className="group-hover:translate-x-2 transition-transform">→</span>
+              </button>
+              <button onClick={() => setView("stock")} className="border border-zinc-800 p-8 font-black text-zinc-600 text-xl text-left hover:text-white hover:border-zinc-500 transition-all">INVENTAIRE_STOCKS</button>
+            </div>
+          </div>
+        )}
 
-            {step.id.startsWith('p') && (
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <input type="number" className="bg-zinc-900 p-2 text-blue-400 font-black" placeholder="°C" value={step.temp} onChange={e => {const n=[...steps]; n[sIdx].temp=+e.target.value; setSteps(n)}} />
-                <input type="number" className="bg-zinc-900 p-2 text-white font-black" placeholder="MIN" value={step.durationInMinutes} onChange={e => {const n=[...steps]; n[sIdx].durationInMinutes=+e.target.value; n[sIdx].remainingSeconds=(+e.target.value*60); setSteps(n)}} />
-              </div>
-            )}
+        {view === "library" && (
+          <div className="space-y-4">
+            <button onClick={() => setView("home")} className="text-[10px] text-zinc-500 mb-8 block hover:text-white">← MENU_PRINCIPAL</button>
+            {recipes.map(r => (
+              <button key={r.id} onClick={() => { setSelected(r); setView("detail"); }} className="w-full bg-zinc-950 border border-zinc-900 p-6 text-left hover:border-yellow-500 transition-colors">
+                <div className="text-[8px] text-zinc-600 mb-1">{r.data?.stats_json?.abv}% ABV | {r.data?.stats_json?.ibu} IBU</div>
+                <div className="text-xl font-black text-white uppercase">{r.name}</div>
+              </button>
+            ))}
+          </div>
+        )}
 
-            <div className="space-y-2">
-              <select 
-                className="w-full bg-zinc-900 border border-zinc-800 p-2 text-[10px] text-zinc-500 font-black italic uppercase"
-                onChange={(e) => {
-                  const item = dbInventory.find(i => i.name === e.target.value);
-                  if (item) {
-                    const n = [...steps];
-                    n[sIdx].ingredients.push({ id: Date.now(), name: item.name, type: item.type, qty: 0, ebc: item.metadata?.ebc, alpha: item.metadata?.alpha });
-                    setSteps(n);
-                  }
-                }}
-              >
-                <option value="">+ FILTRAGE_AUTO ({step.label.includes("ÉBULLITION") ? "HOUBLONS" : step.label.includes("PALIER") ? "MALTS" : "TOUT"})</option>
-                {dbInventory
-                  .filter(i => {
-                    if(step.label.includes("ÉBULLITION")) return i.type === "HOUBLON";
-                    if(step.label.includes("PALIER") || step.label.includes("CONCASSAGE")) return i.type === "MALT";
-                    return true;
-                  })
-                  .map(i => <option key={i.id} value={i.name}>{i.name} ({i.type})</option>)
-                }
-              </select>
-
-              {step.ingredients.map((ing, iIdx) => (
-                <div key={ing.id} className="flex items-center gap-3 bg-black/40 p-2 border border-zinc-900">
-                  <span className="flex-1 text-[11px] font-bold text-zinc-400">{ing.name}</span>
-                  <input type="number" className="bg-transparent border-b border-zinc-800 w-12 text-right text-yellow-500 font-black outline-none" value={ing.qty} onChange={e => {const n=[...steps]; n[sIdx].ingredients[iIdx].qty=+e.target.value; setSteps(n)}} />
-                  <span className="text-[8px] text-zinc-700">{ing.type === 'MALT' ? 'KG' : 'G'}</span>
-                  <button onClick={() => {const n=[...steps]; n[sIdx].ingredients.splice(iIdx,1); setSteps(n)}} className="text-red-900">×</button>
+        {view === "detail" && selected && (
+          <div>
+            <button onClick={() => { setView("library"); setCompletedSteps([]); }} className="text-[10px] text-zinc-500 mb-8 block pt-4 hover:text-white">← ANNULER_SESSION</button>
+            <h2 className="text-4xl font-black text-white mb-10 tracking-tighter">{selected.name}</h2>
+            
+            <div className="space-y-12">
+              {selected.data?.steps_json?.map((step: any) => (
+                <div key={step.id} className={`pl-6 border-l-2 ${completedSteps.includes(step.id) ? 'border-zinc-800 opacity-30' : 'border-yellow-500'}`}>
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <h3 className="text-xl font-black text-white">{step.label}</h3>
+                            {step.temp && <p className="text-blue-400 text-sm font-black mt-1">{step.temp}°C | {step.durationInMinutes} MIN</p>}
+                        </div>
+                        <input type="checkbox" className="w-8 h-8 accent-yellow-500" onChange={() => setCompletedSteps(p => p.includes(step.id) ? p.filter(x => x!==step.id) : [...p, step.id])} />
+                    </div>
+                    
+                    {!completedSteps.includes(step.id) && step.ingredients?.length > 0 && (
+                        <div className="mt-6 bg-zinc-900/50 p-4 border border-zinc-800">
+                            {step.ingredients.map((ing:any, i:number) => (
+                                <div key={i} className="flex justify-between text-[11px] py-2 border-b border-zinc-800 last:border-0">
+                                    <span className="text-zinc-400 font-bold">{ing.name}</span>
+                                    <span className="text-white font-black">{ing.qty}{ing.type === 'MALT' ? 'KG' : 'G'}</span>
+                                </div>
+                            ))}
+                            <button onClick={() => consumeStock(step.ingredients)} className="w-full mt-4 bg-white text-black text-[9px] font-black py-2 hover:bg-yellow-500">DÉDUIRE_DU_STOCK_MAINTENANT</button>
+                        </div>
+                    )}
                 </div>
               ))}
             </div>
           </div>
-        ))}
-        
-        <div className="bg-zinc-950 border border-yellow-900/20 p-6 flex justify-between items-center">
-            <span className="font-black text-yellow-600 italic">RE-SUCRAGE ({resucrageDosage}g/L)</span>
-            <div className="text-3xl font-black">{stats.sucreBouteille}G</div>
-        </div>
+        )}
+
+        {view === "stock" && (
+            <div className="pb-20">
+                <button onClick={() => setView("home")} className="text-[10px] text-zinc-500 mb-8 block">← RETOUR</button>
+                <div className="flex justify-between items-end mb-10">
+                    <h2 className="text-3xl font-black text-white italic tracking-tighter">STOCK_RÉEL</h2>
+                    <button onClick={() => setShowModal(true)} className="bg-yellow-500 text-black px-4 py-2 text-[10px] font-black italic">ADD_ITEM</button>
+                </div>
+                <div className="grid gap-3">
+                    {inventory.map(item => (
+                        <div key={item.id} className="bg-zinc-950 p-6 border border-zinc-900 flex justify-between items-center">
+                            <div>
+                                <div className="font-black text-white text-lg leading-none">{item.name}</div>
+                                <div className="text-[8px] text-zinc-600 mt-1 uppercase">{item.type}</div>
+                            </div>
+                            <div className="text-2xl font-black text-white tabular-nums">
+                                {item.quantity.toFixed(1)} <span className="text-[10px] text-zinc-700">{item.unit || 'KG'}</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
       </div>
 
-      <footer className="fixed bottom-0 left-0 right-0 p-4 bg-black border-t border-zinc-900 flex justify-between">
-        <button onClick={async () => {
-             const { error } = await supabase.from('recipes').upsert({ name: recipeName, data: { steps_json: steps, stats_json: stats, config: { volFinal, resucrageDosage } } }, { onConflict: 'name' });
-             alert(error ? 'Erreur' : '✅ SYNC POTES OK');
-        }} className="w-full bg-yellow-500 text-black font-black py-4 uppercase italic">GÉNÉRER_FEUILLE_DE_BRASSAGE</button>
-      </footer>
+      {/* MODAL AJOUT RAPIDE (STOCK) */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-6">
+          <div className="bg-zinc-950 border border-zinc-800 p-8 w-full max-w-sm shadow-2xl">
+            <h3 className="text-xl font-black text-white mb-6 italic tracking-widest">NOUVELLE_ENTRÉE</h3>
+            <div className="space-y-4">
+              <input placeholder="NOM_DU_PRODUIT" className="w-full bg-zinc-900 p-4 text-white font-black italic border border-zinc-800 outline-none" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
+              <div className="grid grid-cols-2 gap-2">
+                <select className="bg-zinc-900 p-4 text-white font-black italic border border-zinc-800" value={newItem.type} onChange={e => setNewItem({...newItem, type: e.target.value})}>
+                  <option value="MALT">MALT</option><option value="HOUBLON">HOUBLON</option><option value="LEVURE">LEVURE</option>
+                </select>
+                <input type="number" placeholder="QUANTITÉ" className="bg-zinc-900 p-4 text-yellow-500 font-black border border-zinc-800" onChange={e => setNewItem({...newItem, quantity: +e.target.value})} />
+              </div>
+              <div className="flex gap-4 pt-6">
+                <button onClick={() => setShowModal(false)} className="flex-1 text-[10px] font-black uppercase text-zinc-500">ANNULER</button>
+                <button onClick={async () => {
+                    await supabase.from('inventory').insert([{ name: newItem.name.toUpperCase(), type: newItem.type, quantity: newItem.quantity, unit: newItem.type === "MALT" ? "KG" : "G" }]);
+                    setShowModal(false); fetchData();
+                }} className="flex-1 bg-white text-black p-4 text-[10px] font-black uppercase">VALIDER_ENTRÉE</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
