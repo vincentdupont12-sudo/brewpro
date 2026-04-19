@@ -1,233 +1,253 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { supabase } from "../../lib/supabaseClient";
+import React, { useState, useEffect, useCallback } from "react";
+import { supabase } from "../../../lib/supabaseClient";
 
-// --- TYPES ALIGNÉS SUR LE SUPERLABO ---
-interface Ingredient { name: string; qty: number; type: string; }
-interface Step { 
-  id: string; 
-  label: string; 
-  temp?: number; 
-  durationInMinutes: number; 
-  ingredients: Ingredient[]; 
-  desc?: string; 
+// --- TYPES ---
+interface Ingredient {
+  id: number;
+  type: "MALT" | "HOUBLON" | "LEVURE" | "SEL" | "SUCRE";
+  name: string;
+  qty: number;
+  ebc?: number;
+  alpha?: number;
 }
 
-export default function BrewMasterPotes() {
-  const [view, setView] = useState("home");
-  const [recipes, setRecipes] = useState<any[]>([]);
-  const [selected, setSelected] = useState<any>(null);
-  const [inventory, setInventory] = useState<any[]>([]);
-  const [completedSteps, setCompletedSteps] = useState<string[]>([]);
+interface Step {
+  id: string;
+  label: string;
+  temp?: number;
+  durationInMinutes: number;
+  remainingSeconds: number;
+  isRunning: boolean;
+  ingredients: Ingredient[];
+  desc?: string;
+  target?: string; // Objectif du palier (ex: Alpha-amylase)
+}
 
-  useEffect(() => { fetchData(); }, []);
+export default function SuperLaboPage() {
+  const [dbInventory, setDbInventory] = useState<any[]>([]);
+  const [recipeName, setRecipeName] = useState("NOUVELLE_RECETTE_V2");
+  const [volFinal, setVolFinal] = useState(20);
+  const [resucrageDosage, setResucrageDosage] = useState(7); // g/L
+  
+  const [steps, setSteps] = useState<Step[]>([
+    { id: "s1", label: "CONCASSAGE", durationInMinutes: 0, remainingSeconds: 0, isRunning: false, ingredients: [] },
+    { id: "p1", label: "PALIER_PROTEINIQUE", temp: 50, durationInMinutes: 10, remainingSeconds: 600, isRunning: false, ingredients: [], target: "Rupture des protéines" },
+    { id: "p2", label: "BÊTA-AMYLASE", temp: 63, durationInMinutes: 40, remainingSeconds: 2400, isRunning: false, ingredients: [], target: "Sucres fermentescibles" },
+    { id: "p3", label: "ALPHA-AMYLASE", temp: 68, durationInMinutes: 20, remainingSeconds: 1200, isRunning: false, ingredients: [], target: "Corps et texture" },
+    { id: "s4", label: "ÉBULLITION", durationInMinutes: 60, remainingSeconds: 3600, isRunning: false, ingredients: [] },
+  ]);
 
-  const fetchData = async () => {
-    const [r, i] = await Promise.all([
-      supabase.from('recipes').select('*').order('updated_at', { ascending: false }),
-      supabase.from('inventory').select('*').order('name')
-    ]);
-    if (r.data) setRecipes(r.data);
-    if (i.data) setInventory(i.data);
+  const [stats, setStats] = useState({ abv: 0, ebc: 0, ibu: 0, maltTotal: 0, hopTotal: 0, waterE: 0, waterR: 0, sucreBouteille: 0 });
+
+  // --- RÉCUPÉRATION STOCK ---
+  useEffect(() => {
+    const getInv = async () => {
+      const { data } = await supabase.from('inventory').select('*').order('name');
+      if (data) setDbInventory(data);
+    };
+    getInv();
+  }, []);
+
+  // --- CALCULS PHYSIQUES ---
+  const runCalculations = useCallback(() => {
+    let mTotal = 0, hTotal = 0, mcu = 0, ibuTotal = 0;
+
+    steps.forEach(s => {
+      s.ingredients.forEach(ing => {
+        if (ing.type === "MALT") {
+          mTotal += ing.qty;
+          mcu += (ing.qty * 2.204 * ((ing.ebc || 0) * 0.508)) / (volFinal * 0.264);
+        }
+        if (ing.type === "HOUBLON") {
+          hTotal += ing.qty;
+          // Formule simplifiée IBU (Tinseth)
+          ibuTotal += (ing.qty * (ing.alpha || 0) * 0.25) / (volFinal / 10);
+        }
+      });
+    });
+
+    setStats({
+      maltTotal: mTotal,
+      hopTotal: hTotal,
+      ebc: Math.round(1.49 * Math.pow(mcu, 0.68) * 1.97),
+      ibu: Math.round(ibuTotal),
+      abv: parseFloat(((mTotal * 0.15) / (volFinal/20)).toFixed(1)),
+      waterE: parseFloat((mTotal * 3).toFixed(1)), // Ratio 3:1
+      waterR: parseFloat((volFinal * 1.25).toFixed(1)),
+      sucreBouteille: parseFloat((volFinal * resucrageDosage).toFixed(1))
+    });
+  }, [steps, volFinal, resucrageDosage]);
+
+  useEffect(() => { runCalculations(); }, [runCalculations]);
+
+  // --- GESTION TIMERS ---
+  const toggleTimer = (id: string) => {
+    setSteps(prev => prev.map(s => s.id === id ? { ...s, isRunning: !s.isRunning } : s));
   };
 
-  const updateStock = async (id: string, newQty: number) => {
-    await supabase.from('inventory').update({ quantity: newQty }).eq('id', id);
-    fetchData();
+  const resetTimer = (id: string) => {
+    setSteps(prev => prev.map(s => s.id === id ? { ...s, remainingSeconds: s.durationInMinutes * 60, isRunning: false } : s));
   };
 
-  const consumeStepStock = async (ings: Ingredient[]) => {
-    if (!ings || ings.length === 0) return;
-    if (!confirm("DÉDUIRE CES INGRÉDIENTS DU STOCK RÉEL ?")) return;
-    
-    const updates = ings.map(ing => {
-      const item = inventory.find(i => i.name.toUpperCase() === ing.name.toUpperCase());
-      if (item) return supabase.from('inventory').update({ quantity: item.quantity - ing.qty }).eq('id', item.id);
-      return null;
-    }).filter(Boolean);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSteps(prev => prev.map(s => (s.isRunning && s.remainingSeconds > 0) ? { ...s, remainingSeconds: s.remainingSeconds - 1 } : s));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-    await Promise.all(updates);
-    fetchData();
-    alert("STOCK ACTUALISÉ");
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
-
-  const progress = selected?.steps_json 
-    ? Math.round((completedSteps.length / selected.steps_json.length) * 100) 
-    : 0;
 
   return (
-    <div className="min-h-screen bg-[#020202] text-zinc-300 font-mono p-4 uppercase italic selection:bg-yellow-500">
-      <div className="max-w-xl mx-auto pb-32">
+    <div className="min-h-screen bg-black text-white font-mono p-6">
+      
+      {/* HEADER DYNAMIQUE */}
+      <header className="border-b border-zinc-800 pb-6 mb-8 flex justify-between items-end">
+        <div>
+          <input className="bg-transparent text-4xl font-black outline-none border-b border-transparent focus:border-yellow-500 transition-all" value={recipeName} onChange={e => setRecipeName(e.target.value)} />
+          <div className="text-zinc-500 text-xs mt-2 uppercase tracking-widest">Calcul_Volume_Eau: <span className="text-blue-500">{stats.waterE}L (Empâtage)</span> + <span className="text-cyan-500">{stats.waterR}L (Rinçage)</span></div>
+        </div>
         
-        {/* PROGRESS BAR FIXE */}
-        {view === "detail" && (
-          <div className="fixed top-0 left-0 right-0 h-1 bg-zinc-900 z-50">
-            <div className="h-full bg-yellow-500 transition-all duration-500 shadow-[0_0_10px_#f39c12]" style={{ width: `${progress}%` }} />
+        <div className="text-right">
+          <label className="text-[10px] text-zinc-600 block mb-1">VOLUME_FINAL_CIBLE</label>
+          <div className="flex items-center gap-2">
+            <input type="number" className="bg-zinc-900 border border-zinc-800 text-2xl font-black text-yellow-500 w-24 p-2 text-right outline-none" value={volFinal} onChange={e => setVolFinal(+e.target.value)} />
+            <span className="text-xl font-black text-zinc-700">L</span>
           </div>
-        )}
+        </div>
+      </header>
 
-        {/* NAVIGATION */}
-        {view !== "home" && (
-          <button onClick={() => { setView(view === "detail" ? "library" : "home"); setCompletedSteps([]); }} className="text-[10px] font-black mb-8 border-b border-zinc-900 pb-2 flex items-center gap-2 hover:text-white transition-colors">
-            ← {view === "detail" ? "RETOUR_LISTE" : "MENU_PRINCIPAL"}
-          </button>
-        )}
-
-        {/* --- VUE ACCUEIL --- */}
-        {view === "home" && (
-          <div className="pt-20 animate-in fade-in slide-in-from-bottom-6 duration-700">
-            <h1 className="text-[60px] font-black text-white leading-none mb-16 tracking-tighter">BREW<br/><span className="text-yellow-500">CONTROL_</span></h1>
-            <div className="grid gap-4">
-              <button onClick={() => setView("library")} className="group bg-white text-black p-8 font-black text-2xl hover:bg-yellow-500 transition-all flex justify-between items-center">
-                <span>BRASSAGE</span><span className="group-hover:translate-x-2 transition-transform">→</span>
-              </button>
-              <button onClick={() => setView("stock")} className="border border-zinc-800 p-8 font-black text-zinc-600 text-xl hover:text-white transition-all text-left">INVENTAIRE_MP</button>
-            </div>
-          </div>
-        )}
-
-        {/* --- BIBLIOTHÈQUE --- */}
-        {view === "library" && (
-          <div className="space-y-3 animate-in fade-in duration-500">
-            <h2 className="text-2xl font-black text-white mb-6 tracking-tighter italic">SÉLECTIONNER_UN_BRASSIN</h2>
-            {recipes.map(r => (
-              <button key={r.id} onClick={() => { setSelected(r); setView("detail"); }} className="group w-full bg-zinc-950 border border-zinc-900 p-6 text-left hover:border-yellow-500 transition-all">
-                <div className="text-[8px] text-zinc-600 mb-1 font-black">{(r.stats_json?.abv || 0).toFixed(1)}% ABV | {r.stats_json?.ebc || 0} EBC | {r.stats_json?.ibu || 0} IBU</div>
-                <div className="text-xl font-black text-zinc-400 group-hover:text-white">{r.name}</div>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* --- COCKPIT D'EXÉCUTION --- */}
-        {view === "detail" && selected && (
-          <div className="animate-in slide-in-from-right-4 duration-500">
-            <header className="mb-10">
-                <div className="flex justify-between items-end mb-6">
-                    <h2 className="text-5xl font-black text-white leading-tight tracking-tighter uppercase">{selected.name}</h2>
-                    <span className="text-2xl font-black text-yellow-500 tabular-nums">{progress}%</span>
-                </div>
-                <div className="grid grid-cols-2 gap-px bg-zinc-900 border border-zinc-900">
-                    <div className="bg-zinc-950 p-4 shadow-inner">
-                        <span className="text-[7px] text-zinc-600 block font-black">EAU_EMPÂTAGE</span>
-                        <span className="text-xl font-black text-blue-500 tabular-nums">{selected.stats_json?.waterE}L</span>
-                    </div>
-                    <div className="bg-zinc-950 p-4 text-right shadow-inner">
-                        <span className="text-[7px] text-zinc-600 block font-black">EAU_RINÇAGE</span>
-                        <span className="text-xl font-black text-blue-500 tabular-nums">{selected.stats_json?.waterR}L</span>
-                    </div>
-                </div>
-            </header>
-
-            <div className="space-y-10 relative">
-              {selected.steps_json?.map((step: Step, idx: number) => {
-                const sId = step.id || `step-${idx}`;
-                const isDone = completedSteps.includes(sId);
-                
-                return (
-                  <div key={sId} className={`relative pl-10 border-l-2 transition-all duration-300 ${isDone ? 'border-zinc-800 opacity-30' : 'border-yellow-500'}`}>
-                    
-                    {/* CHECKBOX */}
-                    <button 
-                      onClick={() => setCompletedSteps(prev => prev.includes(sId) ? prev.filter(id => id !== sId) : [...prev, sId])}
-                      className={`absolute -left-[13px] top-0 w-6 h-6 border-2 flex items-center justify-center transition-all ${isDone ? 'bg-zinc-800 border-zinc-800' : 'bg-black border-yellow-500 hover:scale-110'}`}
-                    >
-                      {isDone && <span className="text-black font-black text-xs">✓</span>}
-                    </button>
-                    
-                    <div className="flex justify-between items-start mb-2">
-                      <h3 className={`text-xl font-black uppercase tracking-tight ${isDone ? 'line-through text-zinc-700' : 'text-white'}`}>
-                        {step.label}
-                      </h3>
-                      {step.temp && (
-                        <span className={`text-[10px] font-black px-2 py-1 border ${isDone ? 'border-zinc-900 text-zinc-800' : 'border-zinc-800 text-yellow-500 bg-zinc-950'}`}>
-                            {step.temp}°C
-                        </span>
-                      )}
-                    </div>
-
-                    {step.desc && <p className="text-[10px] text-zinc-600 mb-4 lowercase italic">{step.desc}</p>}
-
-                    {/* SECTION INGRÉDIENTS */}
-                    {!isDone && step.ingredients && step.ingredients.length > 0 && (
-                      <div className="bg-zinc-950/50 border border-zinc-900 p-4 mb-4 shadow-xl">
-                        {step.ingredients.map((ing, i) => {
-                           const st = inventory.find(it => it.name.toUpperCase() === ing.name.toUpperCase());
-                           return (
-                            <div key={i} className="flex justify-between text-[10px] font-black border-b border-zinc-900/50 py-2 uppercase italic">
-                              <span className={st && st.quantity < ing.qty ? "text-red-600 animate-pulse" : "text-zinc-500"}>
-                                {ing.name}
-                              </span>
-                              <span className="text-yellow-600">{ing.qty} {ing.type === "MALT" || ing.type === "MALT" ? "kg" : "g"}</span>
-                            </div>
-                           );
-                        })}
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); consumeStepStock(step.ingredients); }}
-                          className="w-full mt-4 bg-zinc-900 text-[8px] font-black py-3 hover:bg-white hover:text-black transition-all tracking-[0.2em] border border-zinc-800"
-                        >
-                          CONFIRMER_CONSOMMATION_STOCK
-                        </button>
-                      </div>
-                    )}
-
-                    {!isDone && step.durationInMinutes > 0 && (
-                      <div className="bg-black border border-zinc-900 p-4 w-fit flex items-center gap-4">
-                        <span className="text-3xl font-black text-white tabular-nums">{step.durationInMinutes}:00</span>
-                        <span className="text-[7px] text-zinc-700 font-black tracking-widest leading-none">DURÉE<br/>STABLE</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {progress === 100 && (
-                <button 
-                  onClick={() => { alert("BRASSIN TERMINÉ ! SANTÉ 🍻"); setView("home"); }}
-                  className="w-full mt-20 bg-yellow-500 text-black p-10 font-black text-2xl animate-bounce"
-                >
-                    ARCHIVER_LE_BATCH
-                </button>
-            )}
-          </div>
-        )}
-
-        {/* --- INVENTAIRE --- */}
-        {view === "stock" && (
-            <div className="animate-in fade-in duration-500">
-                <h2 className="text-3xl font-black text-white mb-8 tracking-tighter uppercase">État_Des_Réserves</h2>
-                <div className="space-y-2">
-                    {inventory.map(item => (
-                        <div key={item.id} className="flex justify-between items-center bg-zinc-950 p-4 border border-zinc-900 shadow-md">
-                            <div>
-                                <div className="text-lg font-black text-white tracking-tight leading-none mb-1 uppercase">{item.name}</div>
-                                <div className="text-[7px] text-zinc-600 font-black uppercase">{item.type} | {item.unit}</div>
-                            </div>
-                            <div className="flex items-center gap-4 border-l border-zinc-900 pl-4">
-                                <input 
-                                    type="number" 
-                                    placeholder="+/-" 
-                                    className="w-14 bg-black border border-zinc-800 p-2 text-xs text-green-500 font-black text-center outline-none focus:border-green-900"
-                                    onKeyDown={async (e) => {
-                                        if (e.key === 'Enter') {
-                                            const v = parseFloat(e.currentTarget.value);
-                                            if(!isNaN(v)) await updateStock(item.id, item.quantity + v);
-                                            e.currentTarget.value = "";
-                                        }
-                                    }}
-                                />
-                                <span className={`text-2xl font-black tabular-nums w-16 text-right ${item.quantity <= 0 ? 'text-red-600' : 'text-white'}`}>
-                                  {item.quantity.toFixed(1)}
-                                </span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        )}
+      {/* DASHBOARD & JAUGES BESOIN */}
+      <div className="grid grid-cols-4 gap-4 mb-8">
+        <div className="bg-zinc-950 border border-zinc-900 p-4">
+          <span className="text-[8px] text-zinc-500 block mb-2 uppercase">Malt_Besoin</span>
+          <div className="text-2xl font-black">{stats.maltTotal.toFixed(1)} <span className="text-xs text-zinc-600">KG</span></div>
+          <div className="w-full h-1 bg-zinc-900 mt-2"><div className="h-full bg-orange-600 transition-all" style={{width: `${(stats.maltTotal/10)*100}%`}} /></div>
+        </div>
+        <div className="bg-zinc-950 border border-zinc-900 p-4">
+          <span className="text-[8px] text-zinc-500 block mb-2 uppercase">Houblon_Besoin</span>
+          <div className="text-2xl font-black">{stats.hopTotal} <span className="text-xs text-zinc-600">G</span></div>
+          <div className="w-full h-1 bg-zinc-900 mt-2"><div className="h-full bg-green-600 transition-all" style={{width: `${(stats.hopTotal/200)*100}%`}} /></div>
+        </div>
+        <div className="bg-zinc-950 border border-zinc-900 p-4">
+          <span className="text-[8px] text-zinc-500 block mb-2 uppercase">Couleur_Est.</span>
+          <div className="text-2xl font-black text-yellow-600">{stats.ebc} <span className="text-xs text-zinc-600">EBC</span></div>
+        </div>
+        <div className="bg-zinc-950 border border-zinc-900 p-4">
+          <span className="text-[8px] text-zinc-500 block mb-2 uppercase">Amertume_Est.</span>
+          <div className="text-2xl font-black text-red-600">{stats.ibu} <span className="text-xs text-zinc-600">IBU</span></div>
+        </div>
       </div>
+
+      {/* LISTE DES ÉTAPES */}
+      <div className="space-y-6">
+        {steps.map((step, sIdx) => (
+          <div key={step.id} className="bg-zinc-950 border border-zinc-900 p-6 relative group">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-4">
+                <span className="text-zinc-800 font-black text-2xl italic">0{sIdx+1}</span>
+                <div>
+                  <input className="bg-transparent font-black text-xl uppercase outline-none" value={step.label} onChange={e => {const n=[...steps]; n[sIdx].label=e.target.value; setSteps(n)}} />
+                  {step.target && <div className="text-[9px] text-zinc-500 italic mt-1">Objectif: {step.target}</div>}
+                </div>
+              </div>
+
+              {/* SECTION TIMER */}
+              {step.durationInMinutes > 0 && (
+                <div className="flex items-center gap-4 bg-black p-2 border border-zinc-800">
+                  <div className="text-2xl font-black tabular-nums">{formatTime(step.remainingSeconds)}</div>
+                  <div className="flex gap-1">
+                    <button onClick={() => toggleTimer(step.id)} className={`px-3 py-1 text-[10px] font-black ${step.isRunning ? 'bg-red-900 text-red-200' : 'bg-green-900 text-green-200'}`}>
+                      {step.isRunning ? 'PAUSE' : 'START'}
+                    </button>
+                    <button onClick={() => resetTimer(step.id)} className="bg-zinc-800 px-3 py-1 text-[10px] font-black">RAZ</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* PALIERS GESTION */}
+            {step.id.startsWith('p') && (
+              <div className="grid grid-cols-3 gap-4 mb-4 border-y border-zinc-900 py-4">
+                <div>
+                   <label className="text-[8px] text-zinc-600 block mb-1">TEMPÉRATURE_CIBLE</label>
+                   <input type="number" className="bg-zinc-900 w-full p-2 text-blue-400 font-black" value={step.temp} onChange={e => {const n=[...steps]; n[sIdx].temp=+e.target.value; setSteps(n)}} />
+                </div>
+                <div>
+                   <label className="text-[8px] text-zinc-600 block mb-1">DURÉE (MIN)</label>
+                   <input type="number" className="bg-zinc-900 w-full p-2 text-white font-black" value={step.durationInMinutes} onChange={e => {const n=[...steps]; n[sIdx].durationInMinutes=+e.target.value; n[sIdx].remainingSeconds=(+e.target.value*60); setSteps(n)}} />
+                </div>
+                <div>
+                   <label className="text-[8px] text-zinc-600 block mb-1">CIBLE_ENZYMATIQUE</label>
+                   <input className="bg-zinc-900 w-full p-2 text-zinc-500 text-[10px]" value={step.target} onChange={e => {const n=[...steps]; n[sIdx].target=e.target.value; setSteps(n)}} />
+                </div>
+              </div>
+            )}
+
+            {/* INGRÉDIENTS DANS L'ÉTAPE */}
+            <div className="space-y-2">
+              <select 
+                className="w-full bg-zinc-900 border border-zinc-800 p-2 text-[10px] text-zinc-400 font-black"
+                onChange={(e) => {
+                  const item = dbInventory.find(i => i.name === e.target.value);
+                  if (item) {
+                    const n = [...steps];
+                    n[sIdx].ingredients.push({ id: Date.now(), name: item.name, type: item.type === "HOUBLON" ? "HOUBLON" : item.type as any, qty: 0, ebc: item.metadata?.ebc, alpha: item.metadata?.alpha });
+                    setSteps(n);
+                  }
+                }}
+              >
+                <option value="">+ AJOUTER_INGRÉDIENT</option>
+                {dbInventory.map(i => <option key={i.id} value={i.name}>{i.name} ({i.type})</option>)}
+              </select>
+
+              {step.ingredients.map((ing, iIdx) => (
+                <div key={ing.id} className="flex items-center gap-4 bg-black/50 p-2 border border-zinc-900">
+                  <span className="flex-1 text-[11px] font-bold text-zinc-300 italic">{ing.name}</span>
+                  <input type="number" className="bg-transparent border-b border-zinc-800 w-16 text-right text-yellow-500 font-black outline-none" value={ing.qty} onChange={e => {const n=[...steps]; n[sIdx].ingredients[iIdx].qty=+e.target.value; setSteps(n)}} />
+                  <span className="text-[10px] text-zinc-700">{ing.type === 'MALT' ? 'KG' : 'G'}</span>
+                  <button onClick={() => {const n=[...steps]; n[sIdx].ingredients.splice(iIdx,1); setSteps(n)}} className="text-red-900 hover:text-red-500">×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        {/* SECTION RE-SUCRAGE */}
+        <div className="bg-zinc-950 border border-yellow-900/30 p-6">
+            <h3 className="text-xl font-black text-yellow-500 mb-4 tracking-tighter uppercase italic">Phase_Mise_En_Bouteilles</h3>
+            <div className="grid grid-cols-2 gap-8">
+              <div>
+                <label className="text-[10px] text-zinc-500 block mb-2 font-black uppercase tracking-widest">Dosage_Sucre (g/L)</label>
+                <input type="number" className="bg-zinc-900 p-3 w-full text-white font-black" value={resucrageDosage} onChange={e => setResucrageDosage(+e.target.value)} />
+              </div>
+              <div className="flex flex-col justify-center">
+                <span className="text-[8px] text-zinc-600 uppercase font-black">Total_Sucre_À_Préparer</span>
+                <div className="text-4xl font-black text-white">{stats.sucreBouteille} <span className="text-sm text-zinc-700">G</span></div>
+              </div>
+            </div>
+        </div>
+      </div>
+
+      {/* FOOTER ACTIONS */}
+      <footer className="mt-12 pt-8 border-t border-zinc-900 flex justify-between items-center pb-20">
+        <div className="text-[10px] text-zinc-700 italic">SYSTEM_BREW_V4.0 // READY_FOR_SYNC</div>
+        <button 
+          onClick={async () => {
+             const { error } = await supabase.from('recipes').upsert({ name: recipeName, data: { steps_json: steps, stats_json: stats, config: { volFinal, resucrageDosage } } }, { onConflict: 'name' });
+             error ? alert('Erreur') : alert('✅ SYNCHRONISÉ AVEC LE COCKPIT POTES');
+          }}
+          className="bg-yellow-500 text-black px-10 py-4 font-black text-sm hover:bg-white transition-all shadow-[0_0_20px_rgba(245,158,11,0.2)]"
+        >
+          GÉNÉRER_LE_COCKPIT_POTE
+        </button>
+      </footer>
     </div>
   );
 }
