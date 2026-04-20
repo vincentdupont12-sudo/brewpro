@@ -9,74 +9,111 @@ export default function BrewControlApp() {
   const [inventory, setInventory] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
-    try {
-      const { data: r, error: errR } = await supabase.from("recipes").select("*").order('created_at', { ascending: false });
-      const { data: i, error: errI } = await supabase.from("inventory").select("*").order('name');
-      
-      if (errR) console.error("Erreur recettes:", errR);
-      if (errI) console.error("Erreur stock:", errI);
-      
-      if (r) setRecipes(r);
-      if (i) setInventory(i);
-    } catch (e) {
-      console.error("Erreur système:", e);
-    }
+    const { data: r } = await supabase.from("recipes").select("*").order('created_at', { ascending: false });
+    const { data: i } = await supabase.from("inventory").select("*").order('name');
+    if (r) setRecipes(r);
+    if (i) setInventory(i);
   };
 
-  const sortIngredients = (ingredients: any[]) => {
-    if (!ingredients) return [];
-    return [...ingredients].sort((a, b) => (b.qty || 0) - (a.qty || 0));
+  // --- LE MOTEUR DE RECETTE POUR LES NULS ---
+  // Cette fonction transforme tes 2 étapes en un guide complet de 7 étapes
+  const generateFullGuide = (recipe: any) => {
+    const s = recipe.data?.stats_json;
+    const c = recipe.data?.config;
+    const rawSteps = recipe.data?.steps_json || [];
+
+    // On récupère les ingrédients par type pour les dispatcher
+    const malts = rawSteps.flatMap((st: any) => st.ingredients || []).filter((ing: any) => ing.type === 'MALT');
+    const hops = rawSteps.flatMap((st: any) => st.ingredients || []).filter((ing: any) => ing.type === 'HOUBLON' || ing.type === 'EPICES');
+    const yeast = rawSteps.flatMap((st: any) => st.ingredients || []).filter((ing: any) => ing.type === 'LEVURE');
+
+    return [
+      {
+        title: "01. PRÉPARATION & HYGIÈNE",
+        desc: "L'étape la plus importante : tout ce qui touchera la bière doit être désinfecté au Chemipro.",
+        action: `Rassembler le matériel et vérifier les stocks. Volume cible : ${c?.volFinal}L.`,
+        items: [{ name: "Désinfectant", qty: "QS", unit: "" }]
+      },
+      {
+        title: "02. CONCASSAGE DU GRAIN",
+        desc: "Régler le moulin pour casser le grain sans le réduire en farine.",
+        action: "Concasser tous les malts listés ci-dessous.",
+        items: malts
+      },
+      {
+        title: "03. EMPÂTAGE (MASH)",
+        desc: `C'est ici qu'on extrait le sucre. Chauffer ${s?.waterE}L d'eau.`,
+        action: `Verser le grain concassé quand l'eau atteint la température du premier palier.`,
+        paliers: rawSteps.find((st: any) => st.isMashBlock)?.paliers || [{ name: "Palier Unique", temp: 67, duration: 60, desc: "Extraction standard" }]
+      },
+      {
+        title: "04. FILTRATION & RINÇAGE",
+        desc: "On sépare le jus (moût) des grains épuisés (drêches).",
+        action: `Rincer doucement avec ${s?.waterR}L d'eau chauffée à 78°C.`,
+        items: []
+      },
+      {
+        title: "05. ÉBULLITION (BOIL)",
+        desc: "Stérilisation du moût et ajout de l'amertume.",
+        action: "Porter à ébullition pendant 60 min. Ajouter les houblons selon le timing.",
+        items: hops
+      },
+      {
+        title: "06. REFROIDISSEMENT",
+        desc: "Étape critique : il faut passer de 100°C à 20°C le plus vite possible.",
+        action: "Utiliser le serpentin. Une fois à 20°C, transférer en fermenteur en faisant mousser (oxygène).",
+        items: []
+      },
+      {
+        title: "07. FERMENTATION",
+        desc: "Le moment où les levures travaillent pour nous.",
+        action: `Saupoudrer la levure, fermer le barboteur. Laisser reposer à 20°C constants.`,
+        items: yeast,
+        info: `Resucrage prévu à l'embouteillage : ${c?.resucrageDosage}g/L.`
+      }
+    ];
   };
 
   return (
-    <div className="min-h-screen bg-[#0b0b0c] text-[#e7e7e7] font-sans tracking-tight">
+    <div className="min-h-screen bg-[#0b0b0c] text-[#e7e7e7] font-sans selection:bg-[#d4af37]/30">
       {/* TOP BAR */}
-      <div className="h-12 border-b border-[#1f1f23] flex items-center justify-between px-6 sticky top-0 bg-[#0b0b0c]/80 backdrop-blur-md z-50">
-        <div className="text-[13px] tracking-[0.25em] text-[#d4af37] cursor-pointer font-bold" onClick={() => setView("home")}>
-          BREW CONTROL
-        </div>
-        <div className="text-[10px] text-[#6b6b73] font-mono tracking-widest uppercase">
-          {new Date().toLocaleTimeString()}
-        </div>
+      <div className="h-12 border-b border-[#1f1f23] flex items-center justify-between px-6 sticky top-0 bg-[#0b0b0c]/90 backdrop-blur-md z-50">
+        <div className="text-[11px] tracking-[0.4em] text-[#d4af37] cursor-pointer font-bold" onClick={() => setView("home")}>BREW CONTROL CENTER</div>
+        <div className="text-[10px] text-[#6b6b73] font-mono uppercase tracking-[0.2em]">{new Date().toLocaleDateString()}</div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 py-10">
+      <div className="max-w-3xl mx-auto px-6 py-10">
         
-        {/* --- VUE ACCUEIL --- */}
+        {/* --- HOME --- */}
         {view === "home" && (
-          <div className="space-y-12 animate-in fade-in duration-500">
-            <header className="py-10 text-center">
-              <h1 className="text-5xl font-extralight tracking-tighter text-white uppercase italic mb-2">Main Console</h1>
-              <div className="h-[1px] w-12 bg-[#d4af37] mx-auto mb-4" />
-              <p className="text-[9px] tracking-[0.5em] text-[#6b6b73] uppercase font-bold text-yellow-600/40">Operation Status: Online</p>
-            </header>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <MenuCard title="Lancer un Brassin" subtitle={`${recipes?.length || 0} Recettes`} icon="→" onClick={() => setView("recipes")} />
-              <MenuCard title="Gestion des Stocks" subtitle={`${inventory?.length || 0} Articles`} icon="⌘" onClick={() => setView("stock")} />
+          <div className="space-y-16 animate-in fade-in duration-700">
+            <div className="text-center space-y-4">
+              <h1 className="text-6xl font-extralight tracking-tighter text-white uppercase italic">Dashboard</h1>
+              <div className="w-16 h-px bg-[#d4af37] mx-auto opacity-50" />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <MenuCard title="Mes Recettes" subtitle="Accéder aux protocoles" icon="DR" onClick={() => setView("recipes")} />
+              <MenuCard title="Stock Lab" subtitle="Inventaire matières" icon="IV" onClick={() => setView("stock")} />
             </div>
           </div>
         )}
 
-        {/* --- VUE LISTE RECETTES --- */}
+        {/* --- RECIPES LIST --- */}
         {view === "recipes" && (
-          <div className="animate-in slide-in-from-right duration-500">
-             <button onClick={() => setView("home")} className="text-[10px] tracking-[0.3em] text-[#6b6b73] hover:text-[#d4af37] mb-8 transition">← BACK TO CONSOLE</button>
-             <SectionTitle title="VOS PROTOCOLES" />
-             <div className="grid gap-4 mt-8">
-              {recipes?.map((r) => (
-                <div key={r.id} onClick={() => { setSelected(r); setView("detail"); }} className="group bg-[#111113] border border-[#2a2a2e] rounded-md px-8 py-6 cursor-pointer hover:border-[#d4af37] transition-all">
+          <div className="animate-in slide-in-from-bottom-4 duration-500">
+             <button onClick={() => setView("home")} className="text-[9px] tracking-[0.3em] text-[#6b6b73] hover:text-[#d4af37] mb-12 uppercase">← Retour Console</button>
+             <div className="grid gap-6">
+              {recipes.map((r) => (
+                <div key={r.id} onClick={() => { setSelected(r); setView("detail"); }} className="group relative bg-[#111113] border border-[#2a2a2e] p-8 rounded hover:border-[#d4af37] transition-all cursor-pointer">
                   <div className="flex justify-between items-center">
                     <div>
-                      <div className="text-[10px] text-[#a88f2a] tracking-widest mb-1 uppercase font-bold">{r.data?.stats_json?.abv || 0}% VOL · {r.data?.stats_json?.ibu || 0} IBU</div>
-                      <div className="text-xl font-light tracking-tight group-hover:text-white">{r.name}</div>
+                      <div className="text-[10px] text-[#d4af37] font-bold tracking-[0.2em] uppercase mb-2">{r.data?.stats_json?.abv}% VOL · {r.data?.stats_json?.ibu} IBU</div>
+                      <h3 className="text-2xl font-light text-white group-hover:italic transition-all">{r.name}</h3>
                     </div>
-                    <div className="text-[#6b6b73] group-hover:text-[#d4af37]">→</div>
+                    <div className="text-[#333] group-hover:text-[#d4af37] text-3xl font-thin">→</div>
                   </div>
                 </div>
               ))}
@@ -84,131 +121,100 @@ export default function BrewControlApp() {
           </div>
         )}
 
-        {/* --- VUE STOCK --- */}
-        {view === "stock" && (
-          <div className="animate-in slide-in-from-right duration-500">
-             <button onClick={() => setView("home")} className="text-[10px] tracking-[0.3em] text-[#6b6b73] hover:text-[#d4af37] mb-8 transition">← BACK TO CONSOLE</button>
-             <SectionTitle title="INVENTAIRE ACTUEL" />
-             <div className="bg-[#111113] border border-[#2a2a2e] rounded-md overflow-hidden mt-8">
-                {inventory?.map((item) => (
-                  <div key={item.id} className="flex justify-between px-6 py-4 border-b border-[#1f1f23] last:border-none">
-                    <div>
-                      <div className="text-[13px] font-medium text-white">{item.name}</div>
-                      <div className="text-[9px] text-[#6b6b73] uppercase tracking-tighter">{item.type}</div>
+        {/* --- DETAIL: LA RECETTE DE CUISINE POUR LES NULS --- */}
+        {view === "detail" && selected && (
+          <div className="animate-in fade-in duration-700 space-y-12">
+            <header className="border-b border-[#1f1f23] pb-8 relative">
+              <button onClick={() => setView("recipes")} className="text-[9px] tracking-[0.3em] text-[#6b6b73] hover:text-[#d4af37] mb-6 uppercase">← Choisir une autre bière</button>
+              <h1 className="text-5xl font-black text-white italic uppercase tracking-tighter mb-4">{selected.name}</h1>
+              <div className="flex gap-8 text-[10px] tracking-widest text-[#6b6b73] uppercase font-bold">
+                 <span>ABV: <b className="text-[#d4af37]">{selected.data?.stats_json?.abv}%</b></span>
+                 <span>IBU: <b className="text-[#d4af37]">{selected.data?.stats_json?.ibu}</b></span>
+                 <span>VOL: <b className="text-[#d4af37]">{selected.data?.config?.volFinal}L</b></span>
+              </div>
+            </header>
+
+            <div className="space-y-16">
+              {generateFullGuide(selected).map((step, idx) => (
+                <div key={idx} className="relative">
+                  <div className="flex gap-8">
+                    <div className="hidden md:flex flex-col items-center">
+                      <div className="text-[#2a2a2e] text-4xl font-black italic">{String(idx + 1).padStart(2, '0')}</div>
+                      <div className="w-px h-full bg-[#1f1f23] mt-4" />
                     </div>
-                    <div className="text-[14px] font-mono">{item.quantity} <span className="text-[#a88f2a] text-[10px] uppercase">{item.unit}</span></div>
+                    <div className="flex-1 space-y-4">
+                      <h3 className="text-xl font-bold text-white tracking-tight uppercase italic underline decoration-[#d4af37] underline-offset-8 decoration-2">{step.title}</h3>
+                      <p className="text-sm text-[#6b6b73] leading-relaxed">{step.desc}</p>
+                      
+                      <div className="bg-[#111113] border border-[#1f1f23] p-6 rounded-sm space-y-4">
+                        <div className="flex gap-3">
+                          <div className="w-1.5 h-1.5 rounded-full bg-[#d4af37] mt-1.5 shrink-0" />
+                          <p className="text-[13px] text-white font-medium leading-relaxed uppercase tracking-wide">{step.action}</p>
+                        </div>
+
+                        {/* LISTE DES ITEMS (Malts, Houblons...) */}
+                        {step.items && step.items.length > 0 && (
+                          <div className="grid grid-cols-1 gap-2 mt-4">
+                            {step.items.map((it: any, i: number) => (
+                              <div key={i} className="flex justify-between text-[11px] bg-[#0b0b0c] p-3 border border-[#1f1f23]">
+                                <span className="text-[#6b6b73] uppercase font-bold">{it.name}</span>
+                                <span className="text-[#d4af37] font-mono">{it.qty} {it.unit || (it.type === 'MALT' ? 'KG' : 'G')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* PALIERS DE TEMPÉRATURE */}
+                        {step.paliers && (
+                          <div className="space-y-2 mt-4">
+                            {step.paliers.map((p: any, i: number) => (
+                              <div key={i} className="flex justify-between items-center bg-[#d4af37]/5 border border-[#d4af37]/20 p-4">
+                                <div>
+                                  <div className="text-[10px] text-[#d4af37] font-black uppercase mb-1">{p.name}</div>
+                                  <div className="text-[11px] text-[#6b6b73] italic">{p.desc}</div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-2xl font-light text-white">{p.temp}°C</div>
+                                  <div className="text-[10px] font-mono text-[#6b6b73] uppercase">{p.duration} MIN</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* --- STOCK VIEW (Simplifiée) --- */}
+        {view === "stock" && (
+          <div className="animate-in slide-in-from-bottom-4 duration-500">
+             <button onClick={() => setView("home")} className="text-[9px] tracking-[0.3em] text-[#6b6b73] hover:text-[#d4af37] mb-12 uppercase">← Retour Console</button>
+             <div className="grid gap-2">
+                {inventory.map((item) => (
+                  <div key={item.id} className="flex justify-between p-4 bg-[#111113] border border-[#1f1f23]">
+                    <span className="text-sm font-medium text-white uppercase tracking-tighter">{item.name}</span>
+                    <span className="text-sm font-mono text-[#d4af37]">{item.quantity} {item.unit}</span>
                   </div>
                 ))}
              </div>
           </div>
         )}
-
-        {/* --- VUE DÉTAIL (LA FEUILLE DE ROUTE) --- */}
-        {view === "detail" && selected && (
-          <div className="space-y-12 animate-in fade-in duration-700">
-            <div className="flex items-end justify-between border-b border-[#1f1f23] pb-8">
-              <div>
-                <button onClick={() => setView("recipes")} className="text-[10px] tracking-[0.3em] text-[#6b6b73] hover:text-[#d4af37] mb-4 block transition">← LISTE DES RECETTES</button>
-                <h1 className="text-4xl font-extralight text-white tracking-tighter uppercase italic">{selected.name}</h1>
-              </div>
-              <div className="text-right">
-                <div className="text-[10px] text-[#6b6b73] tracking-widest uppercase">Volume Cible</div>
-                <div className="text-2xl font-light text-[#d4af37]">{selected.data?.config?.volFinal || 0}L</div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatBlock label="ALCOOL" value={`${selected.data?.stats_json?.abv || 0}%`} />
-              <StatBlock label="AMERTUME" value={`${selected.data?.stats_json?.ibu || 0} IBU`} />
-              <StatBlock label="EAU EMPÂTAGE" value={`${selected.data?.stats_json?.waterE || 0}L`} />
-              <StatBlock label="EAU RINÇAGE" value={`${selected.data?.stats_json?.waterR || 0}L`} />
-            </div>
-
-            <div className="space-y-10">
-              <SectionTitle title="INSTRUCTIONS DE BRASSAGE" />
-              {selected.data?.steps_json?.map((step: any, idx: number) => (
-                <div key={step.id} className="relative pl-12 border-l border-[#1f1f23]">
-                  <div className="absolute -left-[13px] top-0 w-6 h-6 rounded-full bg-[#0b0b0c] border border-[#d4af37] flex items-center justify-center text-[10px] text-[#d4af37] font-bold">
-                    {idx + 1}
-                  </div>
-
-                  <div className="bg-[#111113] border border-[#2a2a2e] rounded-md overflow-hidden">
-                    <div className="px-6 py-4 border-b border-[#1f1f23] flex justify-between items-center bg-[#161618]">
-                      <h3 className="text-[12px] font-bold tracking-widest text-white uppercase">{step.label}</h3>
-                      {step.durationInMinutes > 0 && <span className="text-[10px] text-[#6b6b73]">{step.durationInMinutes} MIN</span>}
-                    </div>
-
-                    <div className="p-6 space-y-6">
-                      {/* TEXTES DIRECTIFS POUR TES POTES */}
-                      <div className="text-sm text-[#d4af37] italic border-l border-[#d4af37] pl-4">
-                        {step.label.includes("EMPÂTAGE") && `Verser ${selected.data?.stats_json?.waterE}L d'eau et chauffer.`}
-                        {step.label.includes("RINÇAGE") && `Préparer ${selected.data?.stats_json?.waterR}L d'eau à 78°C.`}
-                        {step.label.includes("FERMENTATION") && `Transférer en fermenteur après refroidissement.`}
-                      </div>
-
-                      {/* PALIERS SI DISPONIBLES */}
-                      {step.isMashBlock && step.paliers?.map((p: any, pIdx: number) => (
-                        <div key={pIdx} className="flex justify-between items-center border-b border-[#1f1f23] pb-3 last:border-none">
-                          <div>
-                            <div className="text-[12px] text-white font-medium">{p.name}</div>
-                            <div className="text-[10px] text-[#6b6b73]">{p.desc}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-[13px] text-[#d4af37]">{p.temp}°C</div>
-                            <div className="text-[10px] text-[#6b6b73]">{p.duration} MIN</div>
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* INGRÉDIENTS EN 2 COLONNES */}
-                      {step.ingredients?.length > 0 && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {sortIngredients(step.ingredients).map((ing: any, iIdx: number) => (
-                            <div key={iIdx} className="flex justify-between bg-[#0b0b0c] px-4 py-2 rounded border border-[#1f1f23]">
-                              <span className="text-[11px] italic">{ing.name}</span>
-                              <span className="text-[11px] font-bold text-[#d4af37]">{ing.qty} {ing.type === 'MALT' ? 'KG' : 'G'}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
 }
 
-// --- COMPOSANTS DE STYLE ---
-
 function MenuCard({ title, subtitle, icon, onClick }: { title: string; subtitle: string; icon: string; onClick: () => void }) {
   return (
-    <div onClick={onClick} className="group bg-[#111113] border border-[#2a2a2e] p-8 rounded-md cursor-pointer hover:border-[#d4af37] transition-all relative overflow-hidden">
-      <div className="absolute right-2 bottom-2 text-6xl text-white/5 group-hover:text-[#d4af37]/10 transition-colors font-black">{icon}</div>
-      <h3 className="text-xl font-light text-white uppercase tracking-tight mb-1">{title}</h3>
-      <p className="text-[10px] text-[#6b6b73] tracking-[0.2em] uppercase">{subtitle}</p>
-    </div>
-  );
-}
-
-function SectionTitle({ title }: { title: string }) {
-  return (
-    <div className="mb-4">
-      <h2 className="text-[10px] tracking-[0.4em] text-[#a88f2a] font-bold uppercase">{title}</h2>
-      <div className="h-px bg-gradient-to-r from-transparent via-[#d4af37] to-transparent mt-3 opacity-20" />
-    </div>
-  );
-}
-
-function StatBlock({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-[#111113] p-4 text-center">
-      <div className="text-[8px] text-[#6b6b73] tracking-widest uppercase mb-1">{label}</div>
-      <div className="text-lg font-light text-white tracking-tight">{value}</div>
+    <div onClick={onClick} className="group bg-[#111113] border border-[#2a2a2e] p-10 rounded-sm cursor-pointer hover:border-[#d4af37] transition-all relative overflow-hidden">
+      <div className="absolute -right-4 -bottom-6 text-9xl font-black text-white/[0.02] group-hover:text-[#d4af37]/[0.05] transition-all">{icon}</div>
+      <h3 className="text-2xl font-light text-white uppercase tracking-tighter mb-2">{title}</h3>
+      <p className="text-[10px] text-[#6b6b73] uppercase tracking-[0.3em] font-bold">{subtitle}</p>
     </div>
   );
 }
