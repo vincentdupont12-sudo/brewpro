@@ -14,8 +14,7 @@ function StepTimer({ minutes, label }: { minutes: number; label: string }) {
       interval = setInterval(() => setTimeLeft((t) => t - 1), 1000);
     } else if (timeLeft === 0 && isActive) {
       clearInterval(interval);
-      if ("vibrate" in navigator) navigator.vibrate([500, 200, 500]);
-      alert(`FIN DE L'ÉTAPE : ${label}`);
+      alert(`STOP : ${label}`);
     }
     return () => clearInterval(interval);
   }, [isActive, timeLeft, label]);
@@ -27,18 +26,18 @@ function StepTimer({ minutes, label }: { minutes: number; label: string }) {
   };
 
   return (
-    <div className="flex items-center gap-4 bg-[#0b0b0c] p-4 border border-[#d4af37]/20 rounded-md mt-4">
+    <div className="flex items-center gap-6 bg-[#1a1a1c] p-5 border-2 border-[#d4af37] rounded-lg my-6 shadow-[0_0_15px_rgba(212,175,55,0.1)]">
       <div className="flex-1">
-        <div className="text-[9px] text-[#6b6b73] uppercase font-bold tracking-widest mb-1">Chronomètre étape</div>
-        <div className="text-3xl font-mono font-black text-[#d4af37] leading-none">{formatTime(timeLeft)}</div>
+        <div className="text-[10px] text-[#6b6b73] uppercase font-black tracking-[0.2em] mb-1">Compte à rebours ébullition</div>
+        <div className="text-4xl font-mono font-black text-white leading-none">{formatTime(timeLeft)}</div>
       </div>
       <button 
         onClick={() => setIsActive(!isActive)}
-        className={`px-6 py-3 text-[10px] font-black uppercase tracking-tighter rounded transition-all ${
-          isActive ? 'bg-red-500/10 text-red-500 border border-red-500/50' : 'bg-[#d4af37]/10 text-[#d4af37] border border-[#d4af37]/50'
+        className={`px-8 py-4 text-xs font-black uppercase tracking-widest rounded-md transition-all ${
+          isActive ? 'bg-red-600 text-white animate-pulse' : 'bg-[#d4af37] text-black'
         }`}
       >
-        {isActive ? "PAUSE" : "LANCER"}
+        {isActive ? "STOP" : "START"}
       </button>
     </div>
   );
@@ -51,7 +50,7 @@ export default function BrewControlApp() {
   const [history, setHistory] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
 
-  // États du calculateur (avec persistance locale pour ne pas perdre la DI pendant 3 semaines)
+  // États du calculateur
   const [di, setDi] = useState<number>(1050);
   const [df, setDf] = useState<number>(1010);
   const [realVol, setRealVol] = useState<number>(20);
@@ -73,24 +72,13 @@ export default function BrewControlApp() {
 
   const saveToHistory = async () => {
     const abv = (di - df) / 7.5;
-    const sugarPerL = selected.data?.config?.resucrageDosage || 7;
-    
     const { error } = await supabase.from("brews").insert([{
       recipe_name: selected.name,
-      di,
-      df,
-      volume_final: realVol,
+      di, df, volume_final: realVol,
       abv_calc: parseFloat(abv.toFixed(1)),
-      sugar_added: Math.round(realVol * sugarPerL),
-      notes: `Brassage réussi. DF mesurée après fermentation.`
+      sugar_added: Math.round(realVol * (selected.data?.config?.resucrageDosage || 7)),
     }]);
-
-    if (!error) {
-      alert("MISSION TERMINÉE : Brassin archivé !");
-      localStorage.removeItem('last_di');
-      fetchData();
-      setView("history");
-    }
+    if (!error) { setView("history"); fetchData(); localStorage.removeItem('last_di'); }
   };
 
   const generateFullGuide = (recipe: any) => {
@@ -103,198 +91,154 @@ export default function BrewControlApp() {
     const yeast = rawSteps.flatMap((st: any) => st.ingredients || []).filter((ing: any) => ing.type === 'LEVURE');
 
     return [
-      { id: 1, title: "01. PRÉPARATION", action: "Désinfection totale (Chemipro).", important: `CIBLE : ${c?.volFinal || 20}L` },
-      { id: 2, title: "02. CONCASSAGE", action: "Moudre le grain sans faire de farine.", items: malts },
+      { id: 1, title: "01. PRÉPARATION", action: "Désinfection (Chemipro).", important: `CIBLE : ${c?.volFinal || 20}L` },
+      { id: 2, title: "02. CONCASSAGE", action: "Moudre les grains.", items: malts },
       { 
         id: 3, title: "03. EMPÂTAGE", 
-        action: `Chauffer ${s?.waterE || 0}L d'eau.`, 
-        important: `EAU D'EMPÂTAGE : ${s?.waterE || 0}L`,
-        paliers: (rawSteps.find((st: any) => st.isMashBlock)?.paliers || []).map((p: any) => {
-          let desc = "Palier standard.";
-          if (p.temp <= 54) desc = "PROTÉINES : Pour une mousse ferme et durable.";
-          if (p.temp >= 60 && p.temp <= 65) desc = "MALTOSE : On crée le sucre qui fera l'alcool.";
-          if (p.temp >= 66 && p.temp <= 70) desc = "DEXTRINES : On crée le corps et la rondeur.";
-          return { ...p, desc };
-        }),
+        action: `Verser ${s?.waterE || 0}L d'eau.`, 
+        paliers: (rawSteps.find((st: any) => st.isMashBlock)?.paliers || []).map((p: any) => ({
+          ...p, desc: p.temp <= 54 ? "MOUSSE" : p.temp <= 65 ? "ALCOOL" : "CORPS"
+        })),
         timer: (rawSteps.find((st: any) => st.isMashBlock)?.paliers || []).reduce((acc: number, p: any) => acc + (p.duration || 0), 0)
       },
-      { id: 4, title: "04. FILTRATION & RINÇAGE", action: `Rincer avec ${s?.waterR || 0}L d'eau à 78°C.`, important: `EAU DE RINÇAGE : ${s?.waterR || 0}L` },
+      { id: 4, title: "04. FILTRATION", action: `Rincer (${s?.waterR || 0}L à 78°C).`, important: `EAU RINÇAGE : ${s?.waterR || 0}L` },
       { 
         id: 5, title: "05. ÉBULLITION", 
-        action: "Bouillir 60 min. Ajouter les houblons.", 
+        action: "Ajouter les houblons selon les paliers ci-dessous.", 
         timer: 60, 
-        items: hops.map((h: any) => ({ ...h, timing: h.name.match(/\d+/) ? h.name.match(/\d+/)[0] : "60" })) 
+        isBoil: true,
+        items: hops.map((h: any) => {
+            const time = h.name.match(/\d+/) ? parseInt(h.name.match(/\d+/)[0]) : 60;
+            return { ...h, timeValue: time };
+        }).sort((a: any, b: any) => b.timeValue - a.timeValue) 
       },
-      { id: 6, title: "06. FERMENTATION", action: "Refroidir à 20°C, oxygéner et ensemencer.", items: yeast }
+      { id: 6, title: "06. FERMENTATION", action: "Refroidir, oxygéner, ensemencer.", items: yeast }
     ];
   };
 
   return (
     <div className="min-h-screen bg-[#0b0b0c] text-[#e7e7e7] font-sans">
-      {/* NAV */}
+      {/* HEADER SIMPLE */}
       <div className="h-14 border-b border-[#1f1f23] flex items-center justify-between px-6 sticky top-0 bg-[#0b0b0c]/90 backdrop-blur-md z-50">
-        <div className="text-[10px] tracking-[0.5em] text-[#d4af37] font-black cursor-pointer" onClick={() => setView("home")}>BREW MASTER</div>
-        <button onClick={() => setView("history")} className="text-[9px] text-[#6b6b73] uppercase tracking-widest hover:text-[#d4af37] transition-colors">Journal de bord</button>
+        <div className="text-[10px] tracking-[0.5em] text-[#d4af37] font-black cursor-pointer uppercase" onClick={() => setView("home")}>Brew Station</div>
+        <button onClick={() => setView("history")} className="text-[9px] text-[#6b6b73] uppercase tracking-widest">Archives</button>
       </div>
 
       <div className="max-w-xl mx-auto px-6 py-8">
         
-        {/* VUE ACCUEIL */}
         {view === "home" && (
-          <div className="py-12 space-y-4 animate-in fade-in duration-500">
-            <MenuButton title="LANCER UN BRASSIN" sub="Suivre une recette étape par étape" icon="🔥" onClick={() => setView("recipes")} color="border-[#d4af37]" />
-            <MenuButton title="ARCHIVES" sub="Historique et mesures de densités" icon="📋" onClick={() => setView("history")} color="border-[#1f1f23]" />
-            <MenuButton title="STOCK" sub="Inventaire des matières premières" icon="🌾" onClick={() => setView("stock")} color="border-[#1f1f23]" />
+          <div className="py-12 space-y-4 animate-in fade-in">
+            <MenuBtn title="BRASSAGE" sub="Suivre une recette" icon="🔥" onClick={() => setView("recipes")} active />
+            <MenuBtn title="HISTORIQUE" sub="Mesures & densités" icon="📜" onClick={() => setView("history")} />
+            <MenuBtn title="INVENTAIRE" sub="Grains & Houblons" icon="🌾" onClick={() => setView("stock")} />
           </div>
         )}
 
-        {/* LISTE DES RECETTES */}
         {view === "recipes" && (
-          <div className="space-y-4 animate-in slide-in-from-right duration-300">
-             <button onClick={() => setView("home")} className="text-[9px] text-[#6b6b73] mb-6 uppercase tracking-[0.2em]">← Retour Menu</button>
-             <h2 className="text-2xl font-black italic uppercase tracking-tighter mb-8">Sélectionner une recette</h2>
+          <div className="space-y-4">
+             <button onClick={() => setView("home")} className="text-[9px] text-[#6b6b73] mb-6 uppercase tracking-[0.2em]">← Menu</button>
              {recipes.map(r => (
-               <div key={r.id} onClick={() => { setSelected(r); setView("detail"); }} className="p-6 bg-[#111113] border border-[#1f1f23] rounded-sm hover:border-[#d4af37] cursor-pointer transition-all">
-                 <div className="text-[9px] text-[#d4af37] font-black tracking-widest mb-1 uppercase">{r.data?.stats_json?.abv}% VOL — {r.data?.stats_json?.ibu} IBU</div>
+               <div key={r.id} onClick={() => { setSelected(r); setView("detail"); }} className="p-6 bg-[#111113] border border-[#1f1f23] rounded hover:border-[#d4af37] cursor-pointer transition-all">
                  <h3 className="text-xl font-bold text-white uppercase italic">{r.name}</h3>
+                 <p className="text-[10px] text-[#d4af37] font-black mt-1 uppercase tracking-widest">{r.data?.stats_json?.abv}% VOL — {r.data?.stats_json?.ibu} IBU</p>
                </div>
              ))}
           </div>
         )}
 
-        {/* FEUILLE DE ROUTE DÉTAILLÉE */}
         {view === "detail" && selected && (
-          <div className="space-y-12 pb-24 animate-in fade-in">
+          <div className="space-y-12 pb-24">
             <header className="border-b border-[#1f1f23] pb-8">
-              <button onClick={() => setView("recipes")} className="text-[9px] text-[#6b6b73] mb-4 uppercase">← Annuler</button>
+              <button onClick={() => setView("recipes")} className="text-[9px] text-[#6b6b73] mb-4 uppercase tracking-widest">← Annuler</button>
               <h1 className="text-5xl font-black text-white italic uppercase tracking-tighter leading-none">{selected.name}</h1>
             </header>
 
             {generateFullGuide(selected).map((step) => (
               <div key={step.id} className="space-y-4">
-                <div className="flex items-center gap-3">
-                    <span className="text-sm font-black text-[#d4af37]">{String(step.id).padStart(2, '0')}</span>
-                    <h2 className="text-sm font-black text-white uppercase tracking-[0.2em]">{step.title}</h2>
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-[#d4af37] border border-[#d4af37] px-2 py-0.5 rounded uppercase">{step.id}</span>
+                    <h2 className="text-sm font-black text-white uppercase tracking-widest">{step.title}</h2>
                 </div>
-                <div className="bg-[#111113] border border-[#1f1f23] p-6 rounded-sm">
+                
+                <div className="bg-[#111113] border border-[#1f1f23] p-5 rounded-sm">
                   <p className="text-sm font-bold text-white uppercase mb-4 leading-tight">{step.action}</p>
-                  
-                  {step.important && (
-                    <div className="bg-[#d4af37]/5 text-[#d4af37] p-4 text-[10px] font-black border-l-2 border-[#d4af37] mb-6 uppercase tracking-widest">
-                        {step.important}
+
+                  {step.isBoil && <StepTimer minutes={step.timer || 60} label="Ébullition terminée" />}
+
+                  {/* LOGIQUE HOUBLON VISUELLE */}
+                  {step.isBoil ? (
+                    <div className="space-y-3 mt-4">
+                        {step.items?.map((it: any, i: number) => (
+                            <div key={i} className="flex bg-black border border-[#1f1f23] overflow-hidden rounded-md group hover:border-[#d4af37]/50 transition-all">
+                                <div className={`w-20 flex flex-col justify-center items-center text-black font-black ${it.timeValue >= 45 ? 'bg-orange-500' : 'bg-green-500'}`}>
+                                    <span className="text-[10px] leading-none mb-1">À T-</span>
+                                    <span className="text-2xl leading-none">{it.timeValue}</span>
+                                    <span className="text-[9px] leading-none mt-1 uppercase">min</span>
+                                </div>
+                                <div className="flex-1 p-4 flex justify-between items-center">
+                                    <div className="text-xs font-black text-white uppercase tracking-tight">{it.name}</div>
+                                    <div className="text-sm font-mono text-[#d4af37] font-bold">{it.qty}{it.unit || 'g'}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                  ) : (
+                    <div className="grid gap-2">
+                        {step.paliers?.map((p: any, i: number) => (
+                            <div key={i} className="p-3 bg-[#0b0b0c] border-l-2 border-[#d4af37] flex justify-between text-[11px] font-bold uppercase">
+                                <span>{p.temp}°C ({p.desc})</span>
+                                <span className="text-[#6b6b73]">{p.duration} MIN</span>
+                            </div>
+                        ))}
+                        {step.items?.map((it: any, i: number) => (
+                            <div key={i} className="flex justify-between p-3 bg-[#0b0b0c] border border-[#1f1f23] text-[11px]">
+                                <span className="text-[#6b6b73] uppercase">{it.name}</span>
+                                <span className="text-white font-mono">{it.qty}{it.unit || 'g'}</span>
+                            </div>
+                        ))}
                     </div>
                   )}
-
-                  {/* PALIERS */}
-                  {step.paliers?.map((p: any, i: number) => (
-                    <div key={i} className="mb-3 p-4 bg-[#0b0b0c] border border-[#1f1f23]">
-                      <div className="flex justify-between text-xs font-black text-white mb-1 uppercase">
-                        <span>{p.temp}°C</span>
-                        <span className="text-[#d4af37]">{p.duration} MIN</span>
-                      </div>
-                      <p className="text-[10px] text-[#6b6b73] italic">{p.desc}</p>
-                    </div>
-                  ))}
-
-                  {/* INGRÉDIENTS */}
-                  <div className="grid gap-2">
-                    {step.items?.map((it: any, i: number) => (
-                      <div key={i} className="flex justify-between items-center p-3 bg-[#0b0b0c] border border-[#1f1f23] text-[11px]">
-                        <div className="flex flex-col">
-                            <span className="text-white font-bold uppercase">{it.name}</span>
-                            {it.timing && <span className="text-[#a88f2a] font-black text-[9px] mt-0.5 uppercase tracking-tighter">Ajout à T-{it.timing} min</span>}
-                        </div>
-                        <span className="text-[#d4af37] font-mono font-bold">{it.qty}{it.unit || (it.type === 'MALT' ? 'kg' : 'g')}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {step.timer && step.timer > 0 && <StepTimer minutes={step.timer} label={step.title} />}
                 </div>
               </div>
             ))}
 
-            {/* LE CALCULATEUR DE FIN DE FERMENTATION */}
+            {/* CALCULATEUR FINAL */}
             <div className="mt-20 pt-10 border-t-2 border-[#d4af37]">
-              <div className="flex items-center gap-2 mb-6">
-                <span className="w-2 h-2 bg-[#d4af37] rounded-full animate-pulse"></span>
-                <h2 className="text-xl font-black text-white italic uppercase tracking-tighter">Mesures & Embouteillage</h2>
-              </div>
-              
-              <div className="bg-[#111113] border border-[#d4af37]/30 p-8 rounded-sm space-y-8">
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[9px] text-[#6b6b73] uppercase font-bold">D. Initiale (DI)</label>
-                    <input type="number" value={di} onChange={e => { setDi(Number(e.target.value)); localStorage.setItem('last_di', e.target.value); }} className="w-full bg-black border border-[#1f1f23] p-3 text-white font-mono text-center outline-none focus:border-[#d4af37]" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[9px] text-[#6b6b73] uppercase font-bold text-[#d4af37]">D. Finale (DF)</label>
-                    <input type="number" value={df} onChange={e => setDf(Number(e.target.value))} className="w-full bg-black border border-[#d4af37]/50 p-3 text-white font-mono text-center outline-none focus:border-[#d4af37]" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[9px] text-[#6b6b73] uppercase font-bold">Volume (L)</label>
-                    <input type="number" value={realVol} onChange={e => setRealVol(Number(e.target.value))} className="w-full bg-black border border-[#1f1f23] p-3 text-white font-mono text-center outline-none focus:border-[#d4af37]" />
-                  </div>
+              <h2 className="text-xl font-black text-white italic uppercase mb-6 tracking-tighter">Mesures de Fin de Fermentation</h2>
+              <div className="bg-[#111113] border border-[#d4af37]/30 p-6 space-y-6">
+                <div className="grid grid-cols-3 gap-3">
+                  <InputBox label="D. Initiale" value={di} onChange={setDi} />
+                  <InputBox label="D. Finale" value={df} onChange={setDf} focus />
+                  <InputBox label="Vol. Réel" value={realVol} onChange={setRealVol} />
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <ResultBox label="ALCOOL RÉEL" value={`${((di - df) / 7.5).toFixed(1)}%`} sub="Vol. Alc" />
-                  <ResultBox label="SUCRE TOTAL" value={`${(realVol * (selected.data?.config?.resucrageDosage || 7)).toFixed(0)}g`} sub="À dissoudre" color="text-[#d4af37]" />
+                <div className="grid grid-cols-2 gap-3">
+                  <StatBox label="Alcool" value={`${((di - df) / 7.5).toFixed(1)}%`} />
+                  <StatBox label="Sucre" value={`${(realVol * (selected.data?.config?.resucrageDosage || 7)).toFixed(0)}g`} gold />
                 </div>
-
-                <div className="text-[10px] text-[#6b6b73] italic text-center px-4 leading-relaxed">
-                  Note : La DF doit être stable sur 48h avant l'embouteillage. 
-                  Une DF trop haute indique une fermentation incomplète (Danger explosion).
-                </div>
-
-                <button onClick={saveToHistory} className="w-full bg-[#d4af37] text-black font-black py-5 uppercase tracking-[0.2em] hover:bg-white transition-all text-sm italic shadow-lg shadow-[#d4af37]/10">
-                  CLÔTURER LE BRASSIN & ARCHIVER 💾
+                <button onClick={saveToHistory} className="w-full bg-[#d4af37] text-black font-black py-5 uppercase tracking-widest hover:bg-white transition-all italic text-sm">
+                  ARCHIVER LE BRASSIN 💾
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* VUE HISTORIQUE / ARCHIVES */}
+        {/* HISTORIQUE */}
         {view === "history" && (
-          <div className="space-y-6 animate-in slide-in-from-bottom-4">
+          <div className="space-y-6">
             <button onClick={() => setView("home")} className="text-[9px] text-[#6b6b73] mb-6 uppercase tracking-widest">← Menu</button>
-            <h2 className="text-3xl font-black italic uppercase tracking-tighter mb-8">Journal de Brasserie</h2>
-            {history.length === 0 && <p className="text-[#6b6b73] text-center py-10 italic">Aucun brassin archivé pour le moment.</p>}
+            <h2 className="text-3xl font-black italic uppercase tracking-tighter mb-8">Journal de bord</h2>
             {history.map(h => (
-              <div key={h.id} className="p-6 bg-[#111113] border-l-4 border-[#d4af37] border-y border-r border-[#1f1f23] rounded-sm">
+              <div key={h.id} className="p-5 bg-[#111113] border-l-4 border-[#d4af37] border-[#1f1f23] border">
                 <div className="flex justify-between items-start mb-4">
-                    <h3 className="font-black text-white uppercase italic tracking-tighter">{h.recipe_name}</h3>
-                    <span className="text-[9px] text-[#6b6b73] font-mono">{new Date(h.brew_date).toLocaleDateString()}</span>
+                    <h3 className="font-black text-white uppercase italic text-sm tracking-tight">{h.recipe_name}</h3>
+                    <span className="text-[9px] text-[#6b6b73]">{new Date(h.brew_date).toLocaleDateString()}</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                    <div className="bg-black/50 p-2 text-center rounded border border-[#1f1f23]">
-                      <div className="text-[8px] text-[#6b6b73] uppercase mb-1">ABV Final</div>
-                      <div className="text-sm font-black text-[#d4af37]">{h.abv_calc}%</div>
-                    </div>
-                    <div className="bg-black/50 p-2 text-center rounded border border-[#1f1f23]">
-                      <div className="text-[8px] text-[#6b6b73] uppercase mb-1">Sucre</div>
-                      <div className="text-sm font-black text-white">{h.sugar_added}g</div>
-                    </div>
-                    <div className="bg-black/50 p-2 text-center rounded border border-[#1f1f23]">
-                      <div className="text-[8px] text-[#6b6b73] uppercase mb-1">Vol. Réel</div>
-                      <div className="text-sm font-black text-white">{h.volume_final}L</div>
-                    </div>
+                    <div className="bg-black p-2 text-center text-xs font-black"><div className="text-[8px] text-[#6b6b73] mb-1">ABV</div><div className="text-[#d4af37]">{h.abv_calc}%</div></div>
+                    <div className="bg-black p-2 text-center text-xs font-black"><div className="text-[8px] text-[#6b6b73] mb-1">SUCRE</div>{h.sugar_added}g</div>
+                    <div className="bg-black p-2 text-center text-xs font-black"><div className="text-[8px] text-[#6b6b73] mb-1">VOL</div>{h.volume_final}L</div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* VUE STOCK */}
-        {view === "stock" && (
-          <div className="space-y-4 animate-in slide-in-from-left">
-            <button onClick={() => setView("home")} className="text-[9px] text-[#6b6b73] mb-6 uppercase tracking-widest">← Menu</button>
-            <h2 className="text-2xl font-black italic uppercase mb-8">État des Stocks</h2>
-            {inventory.map(i => (
-              <div key={i.id} className="flex justify-between items-center p-4 bg-[#111113] border border-[#1f1f23] group hover:border-[#d4af37]/50 transition-colors">
-                <span className="text-xs font-bold text-white uppercase tracking-tighter">{i.name}</span>
-                <span className="text-sm font-mono text-[#d4af37] font-black">{i.quantity} <span className="text-[10px] text-[#6b6b73]">{i.unit}</span></span>
               </div>
             ))}
           </div>
@@ -304,24 +248,31 @@ export default function BrewControlApp() {
   );
 }
 
-// --- SOUS-COMPOSANTS UI ---
-
-function MenuButton({ title, sub, icon, onClick, color }: any) {
+// --- MICRO-COMPOSANTS ---
+function MenuBtn({ title, sub, icon, onClick, active }: any) {
     return (
-        <button onClick={onClick} className={`w-full p-8 bg-[#111113] border ${color} rounded-sm text-left group hover:bg-[#d4af37]/5 transition-all relative overflow-hidden`}>
-            <div className="absolute right-[-10px] bottom-[-15px] text-8xl opacity-[0.03] group-hover:opacity-[0.07] transition-all grayscale">{icon}</div>
-            <h3 className="text-2xl font-black italic text-white uppercase tracking-tighter leading-none mb-2">{title}</h3>
-            <p className="text-[9px] text-[#6b6b73] font-bold uppercase tracking-[0.2em]">{sub}</p>
+        <button onClick={onClick} className={`w-full p-8 bg-[#111113] border-2 ${active ? 'border-[#d4af37]' : 'border-[#1f1f23]'} rounded-lg text-left group hover:bg-[#d4af37]/5 transition-all relative overflow-hidden`}>
+            <div className="absolute right-[-10px] bottom-[-15px] text-8xl opacity-[0.03] grayscale">{icon}</div>
+            <h3 className="text-2xl font-black italic text-white uppercase tracking-tighter leading-none mb-1">{title}</h3>
+            <p className="text-[9px] text-[#6b6b73] font-bold uppercase tracking-[0.3em]">{sub}</p>
         </button>
     );
 }
 
-function ResultBox({ label, value, sub, color = "text-white" }: any) {
+function InputBox({ label, value, onChange, focus }: any) {
     return (
-        <div className="bg-black p-5 text-center border border-[#1f1f23] rounded-sm">
+        <div className="space-y-1">
+            <label className="text-[8px] text-[#6b6b73] uppercase font-black tracking-widest">{label}</label>
+            <input type="number" value={value} onChange={e => onChange(Number(e.target.value))} className={`w-full bg-black ${focus ? 'border-[#d4af37]' : 'border-[#1f1f23]'} border p-3 text-white font-mono text-center outline-none`} />
+        </div>
+    );
+}
+
+function StatBox({ label, value, gold }: any) {
+    return (
+        <div className="bg-black p-4 text-center border border-[#1f1f23]">
             <div className="text-[8px] text-[#6b6b73] uppercase font-black mb-1">{label}</div>
-            <div className={`text-4xl font-black italic tracking-tighter leading-none ${color}`}>{value}</div>
-            <div className="text-[8px] text-[#6b6b73] uppercase font-bold mt-2 tracking-widest">{sub}</div>
+            <div className={`text-3xl font-black italic tracking-tighter ${gold ? 'text-[#d4af37]' : 'text-white'}`}>{value}</div>
         </div>
     );
 }
