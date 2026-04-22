@@ -1,98 +1,73 @@
 "use client";
-
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 
-// --- TIMER ---
 function StepTimer({ minutes, label }: { minutes: number; label: string }) {
   const [timeLeft, setTimeLeft] = useState(minutes * 60);
   const [isActive, setIsActive] = useState(false);
-
   useEffect(() => {
     let interval: any = null;
-    if (isActive && timeLeft > 0) {
-      interval = setInterval(() => setTimeLeft((t) => t - 1), 1000);
-    } else if (timeLeft === 0 && isActive) {
-      clearInterval(interval);
-      alert(`🔔 ACTION : ${label}`);
-    }
+    if (isActive && timeLeft > 0) interval = setInterval(() => setTimeLeft((t) => t - 1), 1000);
+    else if (timeLeft === 0 && isActive) { clearInterval(interval); alert(`🔔 ${label}`); }
     return () => clearInterval(interval);
   }, [isActive, timeLeft, label]);
-
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m}:${sec < 10 ? '0' : ''}${sec}`;
-  };
-
+  const format = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
   return (
-    <div className="flex items-center gap-6 bg-black p-6 border-2 border-[#d4af37] rounded-lg my-6">
-      <div className="flex-1 text-5xl font-mono font-black text-white">{formatTime(timeLeft)}</div>
-      <button 
-        onClick={() => setIsActive(!isActive)}
-        className={`px-8 py-4 text-xs font-black uppercase rounded ${isActive ? 'bg-red-600' : 'bg-[#d4af37] text-black'}`}
-      >
-        {isActive ? "PAUSE" : "DÉPART"}
+    <div className="flex items-center gap-4 bg-black p-4 border border-[#d4af37] rounded my-2">
+      <div className="flex-1 text-4xl font-mono font-black text-white">{format(timeLeft)}</div>
+      <button onClick={() => setIsActive(!isActive)} className={`px-6 py-3 text-[10px] font-black uppercase rounded ${isActive ? 'bg-red-600' : 'bg-[#d4af37] text-black'}`}>
+        {isActive ? "STOP" : "START"}
       </button>
     </div>
   );
 }
 
-export default function BrewControlApp() {
+export default function BrewApp() {
   const [view, setView] = useState<"home" | "recipes" | "detail">("home");
   const [recipes, setRecipes] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { const fetch = async () => { 
+    const { data } = await supabase.from("recipes").select("*"); 
+    if (data) setRecipes(data); 
+  }; fetch(); }, []);
 
-  const fetchData = async () => {
-    const { data: r } = await supabase.from("recipes").select("*");
-    if (r) setRecipes(r);
-  };
-
-  const getBoilSteps = (recipeData: any) => {
-    let hops: any[] = [];
+  const getGuide = (recipe: any) => {
+    const d = recipe.data || {}, s = d.stats_json || {}, steps = d.steps_json || [];
+    const getIng = (t: string) => steps.flatMap((x: any) => x.ingredients || []).filter((i: any) => (i.type || "").toUpperCase().includes(t));
     
-    // On va chercher dans tous les ingrédients de toutes les étapes
-    const steps = recipeData.steps_json || [];
-    steps.forEach((step: any) => {
-      if (step.ingredients) {
-        step.ingredients.forEach((ing: any) => {
-          // On normalise le type pour la comparaison (HOUBLON, houblon, Houblon...)
-          const typeNormalized = (ing.type || "").toUpperCase();
-          
-          if (typeNormalized.includes("HOUBLON")) {
-            hops.push({
-              name: ing.name || "Houblon Inconnu",
-              qty: ing.qty || ing.amount || "?",
-              unit: ing.unit || "g",
-              // On utilise durationInMinutes ou on cherche un chiffre dans le nom par défaut
-              time: parseInt(ing.durationInMinutes) || (ing.name.match(/\d+/) ? parseInt(ing.name.match(/\d+/)[0]) : 60)
-            });
-          }
-        });
-      }
-    });
+    const hops = getIng("HOUBLON").map((h: any) => ({
+      name: h.name, qty: h.qty || h.amount || "?", unit: h.unit || "g",
+      time: parseInt(h.durationInMinutes) || (h.name.match(/\d+/) ? parseInt(h.name.match(/\d+/)[0]) : 60)
+    })).sort((a: any, b: any) => b.time - a.time);
 
-    // Tri du plus long au plus court (Amérisant -> Aromatique)
-    return hops.sort((a, b) => b.time - a.time);
+    return [
+      { id: 1, title: "01. PREP", action: "Désinfection Chemipro.", info: `Cible: ${d.config?.volFinal || 20}L` },
+      { id: 2, title: "02. MALT", action: "Concassage des grains.", items: getIng("MALT") },
+      { 
+        id: 3, title: "03. MASH", action: `Chauffer ${s.waterE || '?'}L d'eau.`, 
+        paliers: (steps.find((x: any) => x.isMashBlock)?.paliers || []),
+        timer: (steps.find((x: any) => x.isMashBlock)?.paliers || []).reduce((a: number, p: any) => a + (p.duration || 0), 0)
+      },
+      { id: 4, title: "04. RINÇAGE", action: `Rincer avec ${s.waterR || '?'}L à 78°C.` },
+      { id: 5, title: "05. ÉBULLITION", action: "Suivre la timeline des houblons.", isBoil: true, items: hops },
+      { id: 6, title: "06. FERMENTATION", action: "Refroidir et ensemencer.", items: getIng("LEVURE") }
+    ];
   };
 
   return (
-    <div className="min-h-screen bg-[#0b0b0c] text-white p-4 font-sans">
+    <div className="min-h-screen bg-[#0b0b0c] text-white font-sans p-4">
       {view === "home" && (
         <div className="max-w-md mx-auto pt-20">
-          <button onClick={() => setView("recipes")} className="w-full p-12 border-2 border-[#d4af37] text-2xl font-black italic uppercase shadow-lg hover:bg-[#d4af37]/5 transition-all">
-            MES RECETTES 🍺
-          </button>
+          <button onClick={() => setView("recipes")} className="w-full p-12 border-2 border-[#d4af37] text-2xl font-black italic uppercase">BRASSAGE 🔥</button>
         </div>
       )}
 
       {view === "recipes" && (
         <div className="max-w-2xl mx-auto space-y-4">
-          <button onClick={() => setView("home")} className="text-[10px] text-gray-400 uppercase tracking-widest mb-4">← Retour</button>
+          <button onClick={() => setView("home")} className="text-[10px] text-gray-500 uppercase tracking-widest">← RETOUR</button>
           {recipes.map(r => (
-            <div key={r.id} onClick={() => { setSelected(r); setView("detail"); }} className="p-6 bg-[#111113] border border-gray-800 rounded-sm hover:border-[#d4af37] cursor-pointer transition-all">
+            <div key={r.id} onClick={() => { setSelected(r); setView("detail"); }} className="p-6 bg-[#111113] border border-gray-800 rounded hover:border-[#d4af37] cursor-pointer">
               <h3 className="text-xl font-black uppercase italic">{r.name}</h3>
             </div>
           ))}
@@ -100,58 +75,61 @@ export default function BrewControlApp() {
       )}
 
       {view === "detail" && selected && (
-        <div className="max-w-2xl mx-auto space-y-10 pb-20 animate-in fade-in">
-          <button onClick={() => setView("recipes")} className="text-[10px] text-gray-400 uppercase tracking-widest">← Annuler</button>
-          
-          <header className="border-b-4 border-[#d4af37] pb-4">
-            <h1 className="text-5xl font-black uppercase italic leading-none">{selected.name}</h1>
+        <div className="max-w-2xl mx-auto space-y-10 pb-20">
+          <header className="border-b-4 border-[#d4af37] pb-4 flex justify-between items-end">
+            <div>
+              <button onClick={() => setView("recipes")} className="text-[10px] text-gray-500 uppercase mb-2">← ANNULER</button>
+              <h1 className="text-4xl font-black uppercase italic leading-none">{selected.name}</h1>
+            </div>
+            <div className="text-right text-[10px] font-bold text-[#d4af37]">DI: {selected.data?.stats_json?.di || '?'}</div>
           </header>
 
-          <section className="space-y-6">
-            <div className="flex items-center gap-3">
-                <span className="bg-[#d4af37] text-black px-2 py-0.5 font-bold italic">STEP 05</span>
-                <h2 className="text-xl font-black uppercase italic underline decoration-[#d4af37]">ÉBULLITION (60 MIN)</h2>
-            </div>
-
-            <div className="bg-[#111113] border border-gray-800 p-6 rounded-sm shadow-2xl">
-              <p className="text-sm text-gray-400 uppercase font-bold mb-4 tracking-tight">Démarrer dès les premiers gros bouillons :</p>
+          {getGuide(selected).map((step) => (
+            <div key={step.id} className="space-y-4">
+              <h2 className="text-[#d4af37] font-black uppercase tracking-widest text-sm flex items-center gap-2">
+                <span className="bg-[#d4af37] text-black px-1.5 py-0.5 text-[10px]">{step.id}</span> {step.title}
+              </h2>
               
-              <StepTimer minutes={60} label="COUPER LE FEU !" />
+              <div className="bg-[#111113] border border-gray-800 p-5 rounded-sm">
+                <p className="text-sm font-bold uppercase mb-4 text-gray-300">{step.action}</p>
 
-              <div className="mt-12 space-y-6 relative">
-                {/* Ligne verticale de la timeline */}
-                <div className="absolute left-4 top-2 bottom-2 w-0.5 bg-gradient-to-b from-[#d4af37] to-gray-800"></div>
-                
-                {getBoilSteps(selected.data).map((it, i) => (
-                  <div key={i} className="relative pl-12 animate-in slide-in-from-left duration-300" style={{ animationDelay: `${i * 100}ms` }}>
-                    {/* Le point indicateur */}
-                    <div className="absolute left-[11px] top-4 w-3 h-3 bg-[#d4af37] rounded-full shadow-[0_0_15px_rgba(212,175,55,0.6)]"></div>
-                    
-                    <div className="bg-black border border-gray-800 p-5 rounded-sm flex justify-between items-center group hover:border-[#d4af37]/50 transition-colors">
-                      <div>
-                        <div className="text-[10px] font-black text-[#d4af37] uppercase mb-1 tracking-widest">
-                            {it.time >= 60 ? "🏁 DÈS LE DÉBUT (À 60:00)" : `⏱️ QUAND LE TIMER AFFICHE ${it.time}:00`}
+                {step.isBoil ? (
+                  <div className="space-y-4">
+                    <StepTimer minutes={60} label="COUPER LE FEU" />
+                    <div className="space-y-2 border-l-2 border-gray-800 ml-2">
+                      {step.items.map((it: any, i: number) => (
+                        <div key={i} className="ml-4 p-3 bg-black border border-gray-800 flex justify-between items-center">
+                          <div>
+                            <div className="text-[8px] font-black text-[#d4af37] uppercase">T-{it.time}:00</div>
+                            <div className="text-sm font-black uppercase italic">{it.name}</div>
+                          </div>
+                          <div className="font-mono text-white">{it.qty}{it.unit}</div>
                         </div>
-                        <div className="text-2xl font-black uppercase italic leading-tight">{it.name}</div>
-                        <div className="text-[10px] text-gray-500 font-bold uppercase mt-1">Durée d'infusion : {it.time} min</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-mono font-black text-white px-3 py-1 bg-[#111113] border border-gray-700">
-                          {it.qty}{it.unit}
-                        </div>
-                      </div>
+                      ))}
                     </div>
                   </div>
-                ))}
-
-                {getBoilSteps(selected.data).length === 0 && (
-                  <div className="p-4 border border-dashed border-red-900 text-red-500 text-xs uppercase font-black text-center">
-                    Aucun ingrédient détecté (Vérifiez le type 'HOUBLON')
+                ) : (
+                  <div className="space-y-1">
+                    {step.paliers?.map((p: any, i: number) => (
+                      <div key={i} className="flex justify-between p-2 bg-black border border-gray-800 text-[10px] font-bold uppercase">
+                        <span>{p.temp}°C</span><span>{p.duration} MIN</span>
+                      </div>
+                    ))}
+                    {step.items?.map((it: any, i: number) => (
+                      <div key={i} className="flex justify-between p-2 bg-black border border-gray-800 text-[10px] font-bold uppercase">
+                        <span className="text-gray-500">{it.name}</span><span>{it.qty}{it.unit}</span>
+                      </div>
+                    ))}
+                    {step.timer && step.timer > 0 && <StepTimer minutes={step.timer} label="Étape terminée" />}
                   </div>
                 )}
               </div>
             </div>
-          </section>
+          ))}
+
+          <div className="bg-[#d4af37] p-6 text-black text-center font-black uppercase italic rounded-sm">
+             Bon Brassage ! 🍻
+          </div>
         </div>
       )}
     </div>
