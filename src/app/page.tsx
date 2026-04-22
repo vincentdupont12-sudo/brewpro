@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 
-/* ---------------- COMPOSANTS VISUELS ---------------- */
+/* ---------------- COMPOSANTS ---------------- */
 
 function Gauge({ label, value, max, type }: { label: string, value: number, max: number, type: 'IBU' | 'EBC' }) {
   const percent = Math.min(Math.max((value / max) * 100, 2), 98); 
@@ -12,17 +12,14 @@ function Gauge({ label, value, max, type }: { label: string, value: number, max:
     : "linear-gradient(to right, #000, #d4af37)";
 
   return (
-    <div className="mb-8">
-      <div className="flex justify-between items-end mb-2">
-        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#6b6b73]">{label}</span>
-        <span className="text-xl font-black italic text-white leading-none">{value}</span>
+    <div className="mb-4 md:mb-8">
+      <div className="flex justify-between items-end mb-1">
+        <span className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-[#6b6b73]">{label}</span>
+        <span className="text-sm md:text-xl font-black italic text-white">{value}</span>
       </div>
-      <div className="relative h-4 w-full bg-[#111113] border border-white/5 rounded-sm overflow-hidden">
+      <div className="relative h-2 md:h-4 w-full bg-[#111113] rounded-full overflow-hidden">
         <div className="absolute inset-0" style={{ background: gradient }} />
-        <div 
-          className="absolute top-0 bottom-0 w-1.5 bg-black z-10 shadow-[0_0_10px_rgba(0,0,0,0.8)]"
-          style={{ left: `${percent}%`, transform: 'translateX(-50%)' }}
-        />
+        <div className="absolute top-0 bottom-0 w-1 bg-black z-10" style={{ left: `${percent}%` }} />
       </div>
     </div>
   );
@@ -45,26 +42,26 @@ function Timer({ minutes }: { minutes: number }) {
   };
 
   return (
-    <div className="flex items-center gap-6 mt-8 bg-black p-4 border border-white/10 inline-flex rounded-sm">
-      <div className="text-4xl font-mono text-white font-black tracking-tighter">{format(time)}</div>
-      <div className="flex gap-2 border-l border-white/10 pl-4">
-        <button className={`text-[10px] font-black uppercase ${running ? 'text-red-500' : 'text-[#d4af37]'}`} onClick={() => setRunning(!running)}>
+    <div className="flex items-center justify-between bg-black p-3 border border-[#d4af37]/50 rounded mt-4 w-full max-w-xs mx-auto">
+      <div className="text-3xl font-mono text-white font-black">{format(time)}</div>
+      <div className="flex gap-3">
+        <button className={`px-4 py-2 font-black text-[10px] rounded ${running ? 'bg-red-900 text-white' : 'bg-[#d4af37] text-black'}`} onClick={() => setRunning(!running)}>
           {running ? "STOP" : "START"}
         </button>
-        <button className="text-[#6b6b73] text-[10px] uppercase font-black" onClick={() => { setTime(minutes * 60); setRunning(false); }}>RESET</button>
+        <button className="text-[#6b6b73] text-[10px] font-black" onClick={() => { setTime(minutes * 60); setRunning(false); }}>RESET</button>
       </div>
     </div>
   );
 }
 
-/* ---------------- BUILD STEPS ---------------- */
+/* ---------------- LOGIQUE ÉTAPES ---------------- */
+
 function buildSteps(recipe: any) {
   const d = recipe.data || {};
   const stats = d.stats_json || {};
   const steps = d.steps_json || [];
   const mash = steps.find((s: any) => s.isMashBlock);
   
-  // Extraction précise des houblons
   const allHops = steps.flatMap((s: any) => s.ingredients || [])
     .filter((i: any) => (i.type || "").toUpperCase().includes("HOUBLON"))
     .map((h: any) => ({
@@ -75,100 +72,55 @@ function buildSteps(recipe: any) {
     })).sort((a: any, b: any) => b.time - a.time);
 
   return [
-    {
-      name: "Concassage",
-      desc: "Préparation des malts.",
-      content: (
-        <div className="space-y-2 max-w-md">
+    { name: "Concassage", desc: "Malt à préparer", content: (
+        <div className="grid grid-cols-1 gap-2">
           {mash?.ingredients?.map((m: any, i: number) => (
-            <div key={i} className="flex justify-between border-b border-white/5 pb-2 text-xs">
-              <span className="font-bold uppercase text-gray-400">{m.name}</span>
-              <span className="font-black text-[#d4af37]">{m.qty} KG</span>
+            <div key={i} className="flex justify-between bg-white/5 p-2 rounded text-[11px] uppercase font-bold border-l border-[#d4af37]">
+              <span>{m.name}</span> <span className="text-[#d4af37]">{m.qty} KG</span>
             </div>
           ))}
         </div>
-      ),
-    },
-    {
-      name: "Empâtage",
-      desc: "Extraction des sucres.",
-      timer: mash?.paliers?.reduce((a: number, p: any) => a + p.duration, 0),
-      content: (
-        <div className="space-y-3 max-w-md">
-          <div className="text-[10px] font-black text-[#6b6b73] uppercase tracking-widest mb-2">Eau d'empâtage : <span className="text-white">{stats.waterE} L</span></div>
+    )},
+    { name: "Empâtage", desc: `${stats.waterE}L d'eau`, timer: mash?.paliers?.reduce((a: number, p: any) => a + p.duration, 0), content: (
+        <div className="space-y-2">
           {mash?.paliers?.map((p: any, i: number) => (
-            <div key={i} className="flex justify-between p-3 bg-white/5 border-l-2 border-[#d4af37] font-bold text-xs">
+            <div key={i} className="flex justify-between p-2 bg-white/5 text-xs font-bold border-r border-[#d4af37]">
               <span>{p.temp}°C</span> <span>{p.duration} MIN</span>
             </div>
           ))}
         </div>
-      ),
-    },
-    {
-      name: "Filtration",
-      desc: "Clarification du moût.",
-      content: <p className="text-xs text-gray-500 leading-relaxed max-w-md italic">Faire circuler le moût jusqu'à obtenir une limpidité satisfaisante avant le transfert.</p>
-    },
-    {
-      name: "Rinçage",
-      desc: "Lavage des drêches.",
-      content: (
-        <div className="p-6 border border-white/10 bg-black inline-block">
-            <div className="text-[10px] font-black text-[#6b6b73] uppercase mb-1">Volume à 78°C</div>
-            <div className="text-4xl font-black text-white italic">{stats.waterR} LITRES</div>
-        </div>
-      ),
-    },
-    {
-      name: "Ébullition",
-      desc: "Houblonnage et stérilisation.",
-      timer: 60,
-      content: (
-        <div className="space-y-2 max-w-md">
-          <div className="text-[10px] font-black text-[#d4af37] uppercase tracking-widest mb-4 italic">Planning des ajouts :</div>
+    )},
+    { name: "Filtration", desc: "Clarification", content: <p className="text-[10px] italic text-gray-500 uppercase tracking-tighter">Recycler jusqu'à limpidité.</p> },
+    { name: "Rinçage", desc: "Lavage des sucres", content: <div className="text-2xl font-black text-[#d4af37] text-center border-2 border-dashed border-white/10 p-4">{stats.waterR}L @ 78°C</div> },
+    { name: "Ébullition", desc: "Timeline Houblons", timer: 60, content: (
+        <div className="space-y-1">
           {allHops.map((h: any, idx: number) => (
-            <div key={idx} className="flex justify-between items-center p-4 bg-white/5 border border-white/10">
-              <div className="flex flex-col">
-                <span className="text-[9px] font-black text-[#6b6b73] uppercase">T - {h.time} MIN</span>
-                <span className="font-black uppercase italic text-sm text-white tracking-tight">{h.name}</span>
-              </div>
-              <div className="text-lg font-black text-[#d4af37]">{h.qty}<span className="text-[10px] ml-0.5">{h.unit}</span></div>
+            <div key={idx} className="flex justify-between items-center p-2 bg-white/5 rounded">
+              <span className="text-[10px] font-black italic uppercase text-white">T-{h.time}' {h.name}</span>
+              <span className="text-xs font-black text-[#d4af37]">{h.qty}{h.unit}</span>
             </div>
           ))}
         </div>
-      ),
-    },
-    {
-        name: "Refroidissement",
-        desc: "Choc thermique.",
-        content: <p className="text-xs text-gray-500 leading-relaxed max-w-md italic">Descendre la température sous les 25°C pour l'ensemencement.</p>
-    },
-    {
-        name: "Fermentation",
-        desc: "Travail des levures.",
-        content: (
-          <div className="space-y-4 max-w-md">
-              <div className="p-4 bg-white/5 border border-white/10">
-                <div className="text-[#6b6b73] font-black uppercase text-[9px] mb-1">Durée en cave</div>
-                <div className="text-[#d4af37] font-black italic uppercase text-xl">~ 21 JOURS</div>
-              </div>
-              {steps.flatMap((s: any) => s.ingredients || [])
-                  .filter((i: any) => (i.type || "").toUpperCase().includes("LEVURE"))
-                  .map((l: any, idx: number) => (
-                      <div key={idx} className="p-3 border-l-2 border-white/20 text-[11px] font-bold uppercase text-gray-300">{l.name}</div>
-                  ))
-              }
-          </div>
-        )
-      },
+    )},
+    { name: "Refroidissement", desc: "Cible < 25°C", content: <p className="text-[10px] text-center text-gray-500 uppercase">Attention au choc thermique.</p> },
+    { name: "Fermentation", desc: "Mise en cuve", content: (
+        <div className="space-y-2">
+          <div className="bg-[#d4af37]/10 p-3 text-center border border-[#d4af37]/30 text-[#d4af37] font-black text-sm uppercase italic">~ 21 Jours en cave</div>
+          {steps.flatMap((s: any) => s.ingredients || []).filter((i: any) => (i.type || "").toUpperCase().includes("LEVURE")).map((l: any, idx: number) => (
+            <div key={idx} className="p-2 bg-white/5 text-[10px] font-bold uppercase text-center border border-white/10">{l.name}</div>
+          ))}
+        </div>
+    )},
   ];
 }
 
 /* ---------------- APP MAIN ---------------- */
+
 export default function BrewApp() {
   const [recipes, setRecipes] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [step, setStep] = useState(0);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => { 
     const load = async () => {
@@ -180,14 +132,13 @@ export default function BrewApp() {
 
   if (!selected) {
     return (
-      <div className="min-h-screen bg-[#0b0b0c] text-white p-10 flex flex-col items-center justify-center">
-        <h1 className="text-3xl font-black italic uppercase tracking-tighter mb-10 text-[#d4af37]">Brew Station</h1>
+      <div className="min-h-screen bg-[#0b0b0c] text-white p-6 flex flex-col items-center justify-center">
+        <h1 className="text-2xl font-black italic uppercase tracking-widest mb-8 border-b-2 border-[#d4af37]">Brew Station</h1>
         <div className="w-full max-w-xs space-y-2">
             {recipes.map((r) => (
-            <div key={r.id} onClick={() => setSelected(r)} className="p-4 bg-[#111113] border border-white/5 cursor-pointer hover:border-[#d4af37] flex justify-between items-center group">
-                <h3 className="text-xs font-black uppercase italic group-hover:text-[#d4af37] transition-colors">{r.name}</h3>
-                <span className="text-[#d4af37]">→</span>
-            </div>
+            <button key={r.id} onClick={() => setSelected(r)} className="w-full p-4 bg-[#111113] border border-white/5 text-left text-xs font-black uppercase italic hover:border-[#d4af37] transition-all">
+                {r.name}
+            </button>
             ))}
         </div>
       </div>
@@ -200,53 +151,62 @@ export default function BrewApp() {
   const ebc = selected.data?.stats_json?.ebc || 0;
 
   return (
-    <div className="min-h-screen bg-[#0b0b0c] text-white flex flex-col md:flex-row font-sans overflow-hidden">
+    <div className="h-screen bg-[#0b0b0c] text-white flex flex-col md:flex-row overflow-hidden">
       
-      {/* SIDEBAR */}
-      <div className="w-full md:w-80 border-r border-white/5 p-8 flex flex-col bg-black md:h-screen sticky top-0">
-        <div className="mb-10">
-            <h2 className="text-2xl font-black uppercase italic leading-none text-white tracking-tighter">{selected.name}</h2>
-            <div className="h-0.5 w-8 bg-[#d4af37] mt-3"></div>
+      {/* SIDEBAR (Drawer sur mobile) */}
+      <div className={`${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:relative z-50 w-64 md:w-80 h-full bg-black border-r border-white/5 p-6 transition-transform duration-300`}>
+        <div className="mb-6">
+            <h2 className="text-xl font-black uppercase italic text-white tracking-tighter">{selected.name}</h2>
+            <div className="h-0.5 w-6 bg-[#d4af37] mt-2"></div>
         </div>
-        <div className="space-y-2">
-            <Gauge label="IBU (Amertume)" value={ibu} max={100} type="IBU" />
-            <Gauge label="EBC (Couleur)" value={ebc} max={80} type="EBC" />
-        </div>
-        <div className="flex-1 mt-8 space-y-1 overflow-y-auto pr-2 custom-scrollbar">
+        <Gauge label="IBU" value={ibu} max={100} type="IBU" />
+        <Gauge label="EBC" value={ebc} max={80} type="EBC" />
+        <div className="flex-1 mt-6 space-y-1 overflow-y-auto">
           {steps.map((s, i) => (
-              <div key={i} className={`p-3 text-[9px] font-black uppercase tracking-[0.15em] border-l-2 transition-all ${
-              i === step ? "border-[#d4af37] text-[#d4af37] bg-white/5 italic" : "border-transparent text-gray-700"
-              }`}>
+              <div key={i} className={`p-2 text-[9px] font-black uppercase border-l-2 transition-all ${i === step ? "border-[#d4af37] text-[#d4af37] bg-white/5 italic" : "border-transparent text-gray-700"}`}>
               {i + 1}. {s.name}
               </div>
           ))}
         </div>
-        <button className="mt-6 text-[9px] font-black uppercase text-[#6b6b73] hover:text-white" onClick={() => {setSelected(null); setStep(0);}}>✕ Retour</button>
+        <button className="mt-4 text-[9px] font-black uppercase text-red-500" onClick={() => setSelected(null)}>✕ Quitter</button>
       </div>
 
+      {/* OVERLAY MOBILE */}
+      {isSidebarOpen && <div className="fixed inset-0 bg-black/80 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
+
       {/* MAIN */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
-        <div className="flex-1 p-8 md:p-16 overflow-y-auto pb-40">
-            <div className="max-w-xl animate-in fade-in slide-in-from-bottom-4 duration-700">
-                <div className="text-[10px] font-black text-[#d4af37] uppercase tracking-[0.4em] mb-2 italic opacity-50">Phase {step + 1} / {steps.length}</div>
-                <h1 className="text-5xl font-black italic uppercase tracking-tighter leading-none mb-2">{current.name}</h1>
-                <p className="text-[#6b6b73] font-bold uppercase text-[9px] tracking-widest mb-10">{current.desc}</p>
-                
-                <div className="mt-8">{current.content}</div>
-                
+      <div className="flex-1 flex flex-col h-full relative">
+        
+        {/* HEADER ÉTAPE (Fixe) */}
+        <div className="p-4 md:p-8 bg-[#0b0b0c] border-b border-white/5 flex justify-between items-center">
+            <button className="md:hidden text-[#d4af37]" onClick={() => setIsSidebarOpen(true)}>☰</button>
+            <div className="text-right md:text-left">
+                <div className="text-[8px] font-black text-[#d4af37] uppercase tracking-[0.3em]">Étape {step + 1}/{steps.length}</div>
+                <h1 className="text-xl md:text-4xl font-black italic uppercase tracking-tighter">{current.name}</h1>
+                <p className="text-[#6b6b73] font-bold uppercase text-[8px] tracking-widest">{current.desc}</p>
+            </div>
+        </div>
+
+        {/* CONTENU (Scrollable) */}
+        <div className="flex-1 p-4 md:p-12 overflow-y-auto pb-32">
+            <div className="max-w-xl mx-auto">
+                {current.content}
                 {current.timer && <Timer minutes={current.timer} />}
             </div>
         </div>
 
-        {/* NAVIGATION */}
-        <div className="p-6 md:p-8 border-t border-white/5 bg-black/90 backdrop-blur sticky bottom-0">
-            <div className="flex gap-4 max-w-xl mx-auto">
-                <button disabled={step === 0} className={`flex-1 p-4 font-black uppercase italic text-[10px] tracking-widest border border-white/10 ${step === 0 ? 'opacity-0 cursor-default' : 'bg-white/5 text-white hover:bg-white/10'}`} onClick={() => setStep((s) => s - 1)}>Précédent</button>
-                <button className="flex-[2] p-4 font-black uppercase italic text-[10px] tracking-widest bg-[#d4af37] text-black border border-[#d4af37] hover:bg-white hover:border-white transition-colors" onClick={() => step === steps.length - 1 ? setSelected(null) : setStep((s) => s + 1)}>
-                  {step === steps.length - 1 ? "Finir le brassage 🍻" : "Étape Suivante"}
+        {/* NAVIGATION BASSE (Fixe) */}
+        <div className="absolute bottom-0 inset-x-0 p-4 md:p-8 bg-gradient-to-t from-black via-black to-transparent">
+            <div className="flex gap-2 max-w-xl mx-auto">
+                {step > 0 && (
+                    <button className="flex-1 py-4 bg-white/5 border border-white/10 font-black uppercase italic text-[10px]" onClick={() => setStep((s) => s - 1)}>RETOUR</button>
+                )}
+                <button className="flex-[2] py-4 bg-[#d4af37] text-black font-black uppercase italic text-[10px]" onClick={() => step === steps.length - 1 ? setSelected(null) : setStep((s) => s + 1)}>
+                  {step === steps.length - 1 ? "FINIR 🍻" : "SUIVANT"}
                 </button>
             </div>
         </div>
+
       </div>
     </div>
   );
