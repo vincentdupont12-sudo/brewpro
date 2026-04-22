@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { supabase } from "../../lib/supabaseClient";
 
 /* ---------------- TIMER ---------------- */
 function Timer({ minutes }: { minutes: number }) {
@@ -30,81 +31,162 @@ function Timer({ minutes }: { minutes: number }) {
       <div className="flex gap-2">
         <button onClick={() => setRunning(true)} className="px-4 py-2 border border-[#1f1f23]">▶</button>
         <button onClick={() => setRunning(false)} className="px-4 py-2 border border-[#1f1f23]">❚❚</button>
-        <button onClick={() => { setTime(minutes * 60); setRunning(false); }} className="px-4 py-2 border border-[#1f1f23]">↺</button>
+        <button
+          onClick={() => {
+            setTime(minutes * 60);
+            setRunning(false);
+          }}
+          className="px-4 py-2 border border-[#1f1f23]"
+        >
+          ↺
+        </button>
       </div>
     </div>
   );
 }
 
-/* ---------------- DATA ---------------- */
-const steps = [
-  {
-    name: "Concassage",
-    desc: "Moudre les grains pour exposer l’amidon.",
-  },
-  {
-    name: "Empâtage",
-    desc: "Convertir l’amidon en sucres fermentescibles.",
-    timer: 60,
-    content: (
-      <div className="space-y-2 text-sm">
-        <div>45°C — 20 min</div>
-        <div>62°C — 30 min</div>
-        <div>72°C — 10 min</div>
-      </div>
-    ),
-  },
-  {
-    name: "Filtration",
-    desc: "Séparer le moût des drêches.",
-    timer: 10,
-  },
-  {
-    name: "Rinçage",
-    desc: "Extraire les sucres restants avec eau chaude.",
-    timer: 15,
-    content: <div className="text-sm">Eau : 12L à 78°C</div>,
-  },
-  {
-    name: "Ébullition",
-    desc: "Stériliser le moût et ajouter les houblons.",
-    timer: 60,
-    content: (
-      <div className="space-y-3 mt-4">
-        {[
-          { t: 60, n: "Magnum", q: 25 },
-          { t: 20, n: "Cascade", q: 20 },
-          { t: 10, n: "Citra", q: 20 },
-          { t: 5, n: "Mosaic", q: 15 },
-        ].map((h, i) => (
-          <div key={i} className="flex justify-between border-b border-[#1f1f23] pb-2 text-sm">
-            <span className="text-[#6b6b73]">{h.t} min</span>
-            <span className="font-bold">{h.n}</span>
-            <span>{h.q}g</span>
+/* ---------------- BUILD STEPS ---------------- */
+function buildSteps(recipe: any) {
+  const d = recipe.data || {};
+  const stats = d.stats_json || {};
+  const steps = d.steps_json || [];
+
+  const mash = steps.find((s: any) => s.isMashBlock);
+  const boil = steps.find((s: any) => s.label === "ÉBULLITION");
+
+  const getIng = (step: any, type?: string) =>
+    (step?.ingredients || []).filter((i: any) =>
+      type ? (i.type || "").includes(type) : true
+    );
+
+  return [
+    {
+      name: "Concassage",
+      desc: "Préparer les grains.",
+      content: (
+        <div className="space-y-1 text-sm">
+          {getIng(mash, "MALT").map((m: any, i: number) => (
+            <div key={i}>
+              {m.name} — {m.qty} kg
+            </div>
+          ))}
+        </div>
+      ),
+    },
+
+    {
+      name: "Empâtage",
+      desc: "Conversion des sucres.",
+      timer: mash?.paliers?.reduce(
+        (acc: number, p: any) => acc + (p.duration || 0),
+        0
+      ),
+      content: (
+        <div className="space-y-3 text-sm">
+          <div>Eau : {stats.waterE} L</div>
+
+          <div className="border-t border-[#1f1f23] pt-2">
+            {mash?.paliers?.map((p: any, i: number) => (
+              <div key={i} className="flex justify-between">
+                <span>{p.temp}°C</span>
+                <span>{p.duration} min</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-    ),
-  },
-  {
-    name: "Refroidissement",
-    desc: "Descendre rapidement la température.",
-    timer: 20,
-  },
-  {
-    name: "Fermentation",
-    desc: "Transformer les sucres en alcool (plusieurs jours).",
-  },
-  {
-    name: "Embouteillage",
-    desc: "Carbonatation en bouteille avec sucre.",
-  },
-];
+
+          <div className="border-t border-[#1f1f23] pt-2">
+            {getIng(mash, "MALT").map((m: any, i: number) => (
+              <div key={i}>
+                {m.name} — {m.qty} kg
+              </div>
+            ))}
+          </div>
+        </div>
+      ),
+    },
+
+    {
+      name: "Filtration",
+      desc: "Séparer le moût des drêches.",
+    },
+
+    {
+      name: "Rinçage",
+      desc: "Extraire les sucres restants.",
+      content: (
+        <div className="text-sm">
+          Eau : {stats.waterR} L à 78°C
+        </div>
+      ),
+    },
+
+    {
+      name: "Ébullition",
+      desc: "Stériliser et ajouter les ingrédients.",
+      timer: boil?.durationInMinutes || 60,
+      content: (
+        <div className="space-y-2 text-sm">
+          {getIng(boil).map((i: any, idx: number) => (
+            <div key={idx} className="flex justify-between border-b border-[#1f1f23] pb-1">
+              <span>{i.name}</span>
+              <span>{i.qty} g</span>
+            </div>
+          ))}
+        </div>
+      ),
+    },
+
+    {
+      name: "Refroidissement",
+      desc: "Descendre rapidement la température.",
+    },
+
+    {
+      name: "Fermentation",
+      desc: "Ajouter la levure et laisser fermenter.",
+    },
+
+    {
+      name: "Embouteillage",
+      desc: "Sucrage et mise en bouteille.",
+      content: (
+        <div className="text-sm">
+          Sucre : {d.config?.resucrageDosage} g/L
+        </div>
+      ),
+    },
+  ];
+}
 
 /* ---------------- APP ---------------- */
 export default function BrewControlApp() {
+  const [recipe, setRecipe] = useState<any>(null);
   const [step, setStep] = useState(0);
 
+  useEffect(() => {
+    const fetchRecipe = async () => {
+      const { data } = await supabase
+        .from("recipes")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (data) setRecipe(data);
+    };
+
+    fetchRecipe();
+  }, []);
+
+  if (!recipe) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        Chargement recette...
+      </div>
+    );
+  }
+
+  const steps = buildSteps(recipe);
   const current = steps[step];
 
   return (
@@ -112,7 +194,6 @@ export default function BrewControlApp() {
 
       {/* SIDEBAR */}
       <div className="w-64 border-r border-[#1f1f23] p-6 flex flex-col justify-between">
-
         <div>
           <div className="text-xs text-[#d4af37] font-black tracking-widest mb-6">
             BREW CONTROL
@@ -136,8 +217,14 @@ export default function BrewControlApp() {
           </div>
         </div>
 
-        {/* ABANDON */}
-        <button className="text-xs text-[#6b6b73] border border-[#1f1f23] p-3">
+        <button
+          onClick={() => {
+            if (confirm("Abandonner le brassin ?")) {
+              setStep(0);
+            }
+          }}
+          className="text-xs text-[#6b6b73] border border-[#1f1f23] p-3"
+        >
           Abandonner ✕
         </button>
       </div>
@@ -145,15 +232,8 @@ export default function BrewControlApp() {
       {/* MAIN */}
       <div className="flex-1 p-10 flex flex-col justify-between">
 
-        {/* TOP BAR */}
-        <div className="flex justify-between items-center mb-10">
-          <button
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
-            className="text-sm text-[#6b6b73]"
-          >
-            ← Retour
-          </button>
-
+        {/* HEADER */}
+        <div className="flex justify-between mb-10">
           <div className="text-sm text-[#6b6b73]">
             Étape {step + 1} / {steps.length}
           </div>
@@ -174,9 +254,8 @@ export default function BrewControlApp() {
           {current.timer && <Timer minutes={current.timer} />}
         </div>
 
-        {/* NAVIGATION */}
+        {/* NAV */}
         <div className="flex justify-between mt-10 pt-6 border-t border-[#1f1f23]">
-
           <button
             onClick={() => setStep((s) => Math.max(0, s - 1))}
             className="text-sm text-[#6b6b73]"
@@ -190,7 +269,6 @@ export default function BrewControlApp() {
           >
             Étape suivante →
           </button>
-
         </div>
       </div>
     </div>
