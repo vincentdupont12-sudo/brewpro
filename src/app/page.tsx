@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion"; // Pour les gestes et animations fluides
 import { supabase } from "../../lib/supabaseClient";
 
 /* ---------------- COMPOSANTS ---------------- */
@@ -12,12 +13,12 @@ function Gauge({ label, value, max, type }: { label: string, value: number, max:
     : "linear-gradient(to right, #000, #d4af37)";
 
   return (
-    <div className="mb-4 md:mb-8">
-      <div className="flex justify-between items-end mb-1">
-        <span className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-[#6b6b73]">{label}</span>
-        <span className="text-sm md:text-xl font-black italic text-white">{value}</span>
+    <div className="mb-3">
+      <div className="flex justify-between items-end mb-0.5">
+        <span className="text-[8px] font-black uppercase tracking-widest text-[#6b6b73]">{label}</span>
+        <span className="text-xs font-black italic text-white">{value}</span>
       </div>
-      <div className="relative h-2 md:h-4 w-full bg-[#111113] rounded-full overflow-hidden">
+      <div className="relative h-1.5 w-full bg-[#111113] rounded-full overflow-hidden">
         <div className="absolute inset-0" style={{ background: gradient }} />
         <div className="absolute top-0 bottom-0 w-1 bg-black z-10" style={{ left: `${percent}%` }} />
       </div>
@@ -114,13 +115,82 @@ function buildSteps(recipe: any) {
   ];
 }
 
+/* ---------------- JOG DIAL ---------------- */
+
+// Composant pour l'étape dans la roue
+function JogStep({ step, index, isActive, totalSteps }: { step: any, index: number, isActive: boolean, totalSteps: number }) {
+  // Calcul de l'angle pour la rotation (pour donner la courbure)
+  // L'étape active est à 0°, les autres tournent autour.
+  const angle = (index - totalSteps / 2) * (180 / totalSteps); 
+  // L'étape active est au centre (index - indexActuel = 0), pas de rotation.
+  // Les autres sont inclinées.
+  
+  return (
+    <motion.div
+      className="absolute flex flex-col items-center justify-center p-3 text-center cursor-pointer transition-all duration-300"
+      style={{
+        width: '120px', 
+        height: '100px',
+        // Transformation de base pour les gestes et le positionnement
+        translateX: `${(index - (totalSteps / 2)) * 140}px`,
+        transformOrigin: '50% 120%', // Point de pivot sous le texte pour l'arc
+      }}
+      animate={{
+        scale: isActive ? 1.3 : 0.8, // Agrandissement Focus
+        rotate: isActive ? 0 : angle / 2, // Rotation légère pour l'arc
+        opacity: isActive ? 1 : 0.3, // Effacement des inactifs
+        y: isActive ? -10 : 0, // Léger soulèvement
+      }}
+    >
+      <div className={`text-[11px] font-black uppercase italic ${isActive ? 'text-[#d4af37]' : 'text-[#6b6b73]'}`}>
+        Step {index + 1}
+      </div>
+      <div className={`text-sm font-black uppercase italic leading-tight ${isActive ? 'text-white' : 'text-gray-700'}`}>
+        {step.name}
+      </div>
+    </motion.div>
+  );
+}
+
+// Le conteneur Jog Dial principal
+function JogDial({ steps, activeStep, onStepChange }: { steps: any[], activeStep: number, onStepChange: (step: number) => void }) {
+  const totalSteps = steps.length;
+  // Offset pour centrer le conteneur
+  const xOffset = - (activeStep - totalSteps / 2) * 140;
+
+  return (
+    <div className="relative w-full h-[120px] overflow-hidden flex items-center justify-center border-b border-white/5 bg-black">
+      {/* Container mobile pour le swipe */}
+      <motion.div
+        className="flex h-full"
+        animate={{ x: xOffset }}
+        // Interaction par gestes Framer Motion
+        drag="x"
+        dragConstraints={{ left: - (totalSteps - 1) * 140, right: 0 }}
+        onDragEnd={(_, info) => {
+          // Calculer le changement d'étape selon la force du swipe
+          const threshold = 70; // Sensibilité
+          if (info.offset.x < -threshold && activeStep < totalSteps - 1) {
+            onStepChange(activeStep + 1);
+          } else if (info.offset.x > threshold && activeStep > 0) {
+            onStepChange(activeStep - 1);
+          }
+        }}
+      >
+        {steps.map((s, i) => (
+          <JogStep key={i} step={s} index={i} isActive={i === activeStep} totalSteps={totalSteps} />
+        ))}
+      </motion.div>
+    </div>
+  );
+}
+
 /* ---------------- APP MAIN ---------------- */
 
 export default function BrewApp() {
   const [recipes, setRecipes] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [step, setStep] = useState(0);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => { 
     const load = async () => {
@@ -130,13 +200,19 @@ export default function BrewApp() {
     load(); 
   }, []);
 
+  // Correctif Reset Step : Réinitialiser l'étape quand on change de recette
+  const handleRecipeSelect = (recipe: any) => {
+    setStep(0); 
+    setSelected(recipe);
+  };
+
   if (!selected) {
     return (
-      <div className="min-h-screen bg-[#0b0b0c] text-white p-6 flex flex-col items-center justify-center">
+      <div className="min-h-screen bg-[#0b0b0c] text-white p-6 flex flex-col items-center justify-center font-sans">
         <h1 className="text-2xl font-black italic uppercase tracking-widest mb-8 border-b-2 border-[#d4af37]">Brew Station</h1>
         <div className="w-full max-w-xs space-y-2">
             {recipes.map((r) => (
-            <button key={r.id} onClick={() => setSelected(r)} className="w-full p-4 bg-[#111113] border border-white/5 text-left text-xs font-black uppercase italic hover:border-[#d4af37] transition-all">
+            <button key={r.id} onClick={() => handleRecipeSelect(r)} className="w-full p-4 bg-[#111113] border border-white/5 text-left text-xs font-black uppercase italic hover:border-[#d4af37] transition-all">
                 {r.name}
             </button>
             ))}
@@ -151,13 +227,13 @@ export default function BrewApp() {
   const ebc = selected.data?.stats_json?.ebc || 0;
 
   return (
-    <div className="h-screen bg-[#0b0b0c] text-white flex flex-col md:flex-row overflow-hidden">
+    <div className="h-screen bg-[#0b0b0c] text-white flex flex-col md:flex-row overflow-hidden font-sans italic-none">
       
       {/* SIDEBAR (Drawer sur mobile) */}
-      <div className={`${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:relative z-50 w-64 md:w-80 h-full bg-black border-r border-white/5 p-6 transition-transform duration-300`}>
-        <div className="mb-6">
+      <div className="hidden md:flex md:flex-col fixed md:relative z-50 w-64 md:w-80 h-full bg-black border-r border-white/5 p-6 transition-transform duration-300 translate-x-0">
+        <div className="mb-6 flex justify-between items-center">
             <h2 className="text-xl font-black uppercase italic text-white tracking-tighter">{selected.name}</h2>
-            <div className="h-0.5 w-6 bg-[#d4af37] mt-2"></div>
+            <div className="h-0.5 w-6 bg-[#d4af37]"></div>
         </div>
         <Gauge label="IBU" value={ibu} max={100} type="IBU" />
         <Gauge label="EBC" value={ebc} max={80} type="EBC" />
@@ -168,41 +244,32 @@ export default function BrewApp() {
               </div>
           ))}
         </div>
-        <button className="mt-4 text-[9px] font-black uppercase text-red-500" onClick={() => setSelected(null)}>✕ Quitter</button>
+        <button className="mt-4 text-[9px] font-black uppercase text-red-500 hover:text-white" onClick={() => setSelected(null)}>✕ Quitter</button>
       </div>
-
-      {/* OVERLAY MOBILE */}
-      {isSidebarOpen && <div className="fixed inset-0 bg-black/80 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
       {/* MAIN */}
       <div className="flex-1 flex flex-col h-full relative">
         
-        {/* HEADER ÉTAPE (Fixe) */}
-        <div className="p-4 md:p-8 bg-[#0b0b0c] border-b border-white/5 flex justify-between items-center">
-            <button className="md:hidden text-[#d4af37]" onClick={() => setIsSidebarOpen(true)}>☰</button>
-            <div className="text-right md:text-left">
-                <div className="text-[8px] font-black text-[#d4af37] uppercase tracking-[0.3em]">Étape {step + 1}/{steps.length}</div>
-                <h1 className="text-xl md:text-4xl font-black italic uppercase tracking-tighter">{current.name}</h1>
-                <p className="text-[#6b6b73] font-bold uppercase text-[8px] tracking-widest">{current.desc}</p>
-            </div>
-        </div>
+        {/* JOG DIAL HEADER (Le génie est là !) */}
+        <JogDial steps={steps} activeStep={step} onStepChange={setStep} />
 
         {/* CONTENU (Scrollable) */}
         <div className="flex-1 p-4 md:p-12 overflow-y-auto pb-32">
             <div className="max-w-xl mx-auto">
+                <p className="text-[#6b6b73] font-bold uppercase text-[8px] tracking-widest text-center mb-6">{current.desc}</p>
                 {current.content}
                 {current.timer && <Timer minutes={current.timer} />}
             </div>
         </div>
 
         {/* NAVIGATION BASSE (Fixe) */}
-        <div className="absolute bottom-0 inset-x-0 p-4 md:p-8 bg-gradient-to-t from-black via-black to-transparent">
-            <div className="flex gap-2 max-w-xl mx-auto">
+        <div className="absolute bottom-0 inset-x-0 p-4 md:p-8 bg-gradient-to-t from-black via-black to-transparent pointer-events-none">
+            <div className="flex gap-2 max-w-xl mx-auto pointer-events-auto">
                 {step > 0 && (
                     <button className="flex-1 py-4 bg-white/5 border border-white/10 font-black uppercase italic text-[10px]" onClick={() => setStep((s) => s - 1)}>RETOUR</button>
                 )}
                 <button className="flex-[2] py-4 bg-[#d4af37] text-black font-black uppercase italic text-[10px]" onClick={() => step === steps.length - 1 ? setSelected(null) : setStep((s) => s + 1)}>
-                  {step === steps.length - 1 ? "FINIR 🍻" : "SUIVANT"}
+                  {step === steps.length - 1 ? "FINIR BRASSIN 🍻" : "ÉTAPE SUIVANTE"}
                 </button>
             </div>
         </div>
