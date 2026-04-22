@@ -1,26 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 
-/* ---------------- TIMER PRO ---------------- */
-function StepTimer({ minutes }: { minutes: number }) {
-  const [timeLeft, setTimeLeft] = useState(minutes * 60);
-  const [isActive, setIsActive] = useState(false);
+/* ---------------- TIMER ---------------- */
+function Timer({ minutes }: { minutes: number }) {
+  const [time, setTime] = useState(minutes * 60);
+  const [running, setRunning] = useState(false);
 
   useEffect(() => {
-    let interval: any = null;
-
-    if (isActive && timeLeft > 0) {
-      interval = setInterval(() => setTimeLeft((t) => t - 1), 1000);
+    let interval: any;
+    if (running && time > 0) {
+      interval = setInterval(() => setTime((t) => t - 1), 1000);
     }
-
-    if (timeLeft === 0 && isActive) {
-      setIsActive(false);
-      alert("Étape terminée 🔔");
-    }
-
     return () => clearInterval(interval);
-  }, [isActive, timeLeft]);
+  }, [running, time]);
 
   const format = (s: number) => {
     const m = Math.floor(s / 60);
@@ -29,143 +22,176 @@ function StepTimer({ minutes }: { minutes: number }) {
   };
 
   return (
-    <div className="flex items-center gap-4">
-      <div className="text-5xl font-mono text-[#d4af37]">
-        {format(timeLeft)}
+    <div className="flex items-center gap-6 mt-6">
+      <div className="text-6xl font-mono text-[#d4af37]">
+        {format(time)}
       </div>
 
       <div className="flex gap-2">
-        <button onClick={() => setIsActive(true)} className="bg-green-600 px-4 py-2">▶</button>
-        <button onClick={() => setIsActive(false)} className="bg-yellow-500 px-4 py-2">❚❚</button>
-        <button onClick={() => { setTimeLeft(minutes * 60); setIsActive(false); }} className="bg-red-600 px-4 py-2">↺</button>
+        <button onClick={() => setRunning(true)} className="px-4 py-2 border border-[#1f1f23]">▶</button>
+        <button onClick={() => setRunning(false)} className="px-4 py-2 border border-[#1f1f23]">❚❚</button>
+        <button onClick={() => { setTime(minutes * 60); setRunning(false); }} className="px-4 py-2 border border-[#1f1f23]">↺</button>
       </div>
     </div>
   );
 }
 
-/* ---------------- TIMELINE ---------------- */
-function Timeline({ items }: any) {
-  return (
-    <div className="relative border-l-2 border-[#333] pl-10 space-y-8 mt-8">
-      {items.map((it: any, i: number) => (
-        <div key={i} className="relative">
-
-          <div className={`absolute -left-[14px] top-2 w-6 h-6 rounded-full ${
-            it.type === "amérisant" ? "bg-red-500"
-            : it.type === "goût" ? "bg-yellow-400"
-            : "bg-green-400"
-          }`} />
-
-          <div className="bg-[#111113] border border-[#1f1f23] p-5 rounded flex justify-between">
-            <div>
-              <div className="text-xs text-[#d4af37]">{it.time} min</div>
-              <div className="text-xl font-black">{it.name}</div>
-              <div className="text-xs text-[#6b6b73] uppercase">{it.type}</div>
-            </div>
-            <div className="text-xl font-mono">{it.qty}g</div>
+/* ---------------- DATA ---------------- */
+const steps = [
+  {
+    name: "Concassage",
+    desc: "Moudre les grains pour exposer l’amidon.",
+  },
+  {
+    name: "Empâtage",
+    desc: "Convertir l’amidon en sucres fermentescibles.",
+    timer: 60,
+    content: (
+      <div className="space-y-2 text-sm">
+        <div>45°C — 20 min</div>
+        <div>62°C — 30 min</div>
+        <div>72°C — 10 min</div>
+      </div>
+    ),
+  },
+  {
+    name: "Filtration",
+    desc: "Séparer le moût des drêches.",
+    timer: 10,
+  },
+  {
+    name: "Rinçage",
+    desc: "Extraire les sucres restants avec eau chaude.",
+    timer: 15,
+    content: <div className="text-sm">Eau : 12L à 78°C</div>,
+  },
+  {
+    name: "Ébullition",
+    desc: "Stériliser le moût et ajouter les houblons.",
+    timer: 60,
+    content: (
+      <div className="space-y-3 mt-4">
+        {[
+          { t: 60, n: "Magnum", q: 25 },
+          { t: 20, n: "Cascade", q: 20 },
+          { t: 10, n: "Citra", q: 20 },
+          { t: 5, n: "Mosaic", q: 15 },
+        ].map((h, i) => (
+          <div key={i} className="flex justify-between border-b border-[#1f1f23] pb-2 text-sm">
+            <span className="text-[#6b6b73]">{h.t} min</span>
+            <span className="font-bold">{h.n}</span>
+            <span>{h.q}g</span>
           </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ---------------- STEP BLOCK ---------------- */
-function StepBlock({ title, objective, children, active }: any) {
-  return (
-    <div className={`border rounded p-6 ${
-      active ? "border-[#d4af37]" : "border-[#1f1f23]"
-    }`}>
-      <h2 className="text-lg font-black text-[#d4af37] uppercase mb-2">
-        {title}
-      </h2>
-
-      <p className="text-sm text-[#6b6b73] mb-4">
-        {objective}
-      </p>
-
-      {children}
-    </div>
-  );
-}
+        ))}
+      </div>
+    ),
+  },
+  {
+    name: "Refroidissement",
+    desc: "Descendre rapidement la température.",
+    timer: 20,
+  },
+  {
+    name: "Fermentation",
+    desc: "Transformer les sucres en alcool (plusieurs jours).",
+  },
+  {
+    name: "Embouteillage",
+    desc: "Carbonatation en bouteille avec sucre.",
+  },
+];
 
 /* ---------------- APP ---------------- */
-export default function BrewApp() {
+export default function BrewControlApp() {
+  const [step, setStep] = useState(0);
 
-  const hops = [
-    { name: "Magnum", qty: 25, time: 60, type: "amérisant" },
-    { name: "Cascade", qty: 20, time: 20, type: "goût" },
-    { name: "Citra", qty: 20, time: 10, type: "aromatique" },
-    { name: "Mosaic", qty: 15, time: 5, type: "aromatique" },
-  ];
+  const current = steps[step];
 
   return (
     <div className="min-h-screen bg-[#0b0b0c] text-white flex">
 
       {/* SIDEBAR */}
-      <div className="w-64 border-r border-[#1f1f23] p-6 space-y-6">
-        <div className="text-xs text-[#d4af37] font-black tracking-widest">
-          BREW CONTROL
+      <div className="w-64 border-r border-[#1f1f23] p-6 flex flex-col justify-between">
+
+        <div>
+          <div className="text-xs text-[#d4af37] font-black tracking-widest mb-6">
+            BREW CONTROL
+          </div>
+
+          <div className="space-y-2 text-xs uppercase">
+            {steps.map((s, i) => (
+              <div
+                key={i}
+                className={`p-3 border ${
+                  i === step
+                    ? "border-[#d4af37] text-white"
+                    : i < step
+                    ? "border-[#1f1f23] text-[#6b6b73] opacity-40"
+                    : "border-[#1f1f23] text-[#6b6b73]"
+                }`}
+              >
+                {i + 1}. {s.name}
+              </div>
+            ))}
+          </div>
         </div>
 
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between"><span>Volume</span><span>20L</span></div>
-          <div className="flex justify-between"><span>Alcool</span><span>5%</span></div>
-          <div className="flex justify-between"><span>IBU</span><span>30</span></div>
-        </div>
-
-        <div className="space-y-2 text-xs uppercase">
-          {["Concassage","Empâtage","Filtration","Rinçage","Ébullition","Refroidissement","Fermentation","Embouteillage"].map((s,i)=>(
-            <div key={i} className={`p-2 border ${i===4?"border-[#d4af37]":"border-[#1f1f23]"}`}>
-              {i+1}. {s}
-            </div>
-          ))}
-        </div>
+        {/* ABANDON */}
+        <button className="text-xs text-[#6b6b73] border border-[#1f1f23] p-3">
+          Abandonner ✕
+        </button>
       </div>
 
       {/* MAIN */}
-      <div className="flex-1 p-10 space-y-10">
+      <div className="flex-1 p-10 flex flex-col justify-between">
 
-        {/* EBULLITION */}
-        <StepBlock
-          title="Ébullition (60 min)"
-          objective="Stériliser et ajouter les houblons"
-          active
-        >
-          <StepTimer minutes={60} />
-          <Timeline items={hops} />
-        </StepBlock>
+        {/* TOP BAR */}
+        <div className="flex justify-between items-center mb-10">
+          <button
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            className="text-sm text-[#6b6b73]"
+          >
+            ← Retour
+          </button>
 
-        {/* EMPATAGE */}
-        <StepBlock
-          title="Empâtage"
-          objective="Conversion des sucres"
-        >
-          <div className="space-y-2 text-sm">
-            <div>45°C — 20 min</div>
-            <div>62°C — 30 min</div>
-            <div>72°C — 10 min</div>
+          <div className="text-sm text-[#6b6b73]">
+            Étape {step + 1} / {steps.length}
           </div>
-          <StepTimer minutes={60} />
-        </StepBlock>
+        </div>
 
-        {/* FILTRATION */}
-        <StepBlock
-          title="Filtration"
-          objective="Séparer le moût"
-        >
-          <StepTimer minutes={10} />
-        </StepBlock>
+        {/* CONTENT */}
+        <div>
+          <h1 className="text-4xl font-black uppercase">
+            {current.name}
+          </h1>
 
-        {/* RINCAGE */}
-        <StepBlock
-          title="Rinçage"
-          objective="Extraire les sucres"
-        >
-          <div className="text-sm mb-2">12L à 78°C</div>
-          <StepTimer minutes={15} />
-        </StepBlock>
+          <p className="text-[#6b6b73] mt-2 mb-6">
+            {current.desc}
+          </p>
 
+          {current.content}
+
+          {current.timer && <Timer minutes={current.timer} />}
+        </div>
+
+        {/* NAVIGATION */}
+        <div className="flex justify-between mt-10 pt-6 border-t border-[#1f1f23]">
+
+          <button
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            className="text-sm text-[#6b6b73]"
+          >
+            ← Précédent
+          </button>
+
+          <button
+            onClick={() => setStep((s) => Math.min(steps.length - 1, s + 1))}
+            className="bg-[#d4af37] text-black px-6 py-3 font-bold"
+          >
+            Étape suivante →
+          </button>
+
+        </div>
       </div>
     </div>
   );
