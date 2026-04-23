@@ -57,64 +57,82 @@ function Timer({ minutes }: { minutes: number }) {
 
 /* ---------------- JOG DIAL (LA ROUE) ---------------- */
 
+/* ---------------- JOG DIAL (LA ROUE) - VERSION HAUTE VISIBILITÉ ---------------- */
+
 function JogDial({ steps, activeStep, onStepChange }: { steps: any[], activeStep: number, onStepChange: (step: number) => void }) {
-  const stepWidth = 140; // Largeur pour éviter les chevauchements
+  const stepWidth = 130; 
   
   return (
-    <div className="relative w-full h-32 overflow-hidden bg-[#0b0b0c] border-b border-white/5 flex items-center justify-center">
-      {/* Repère central haute visibilité */}
-      <div className="absolute top-0 z-30 w-10 h-1 bg-[#d4af37] rounded-b-full shadow-[0_0_15px_rgba(212,175,55,0.6)]" />
+    <div className="relative w-full h-36 overflow-hidden bg-[#050505] border-b-2 border-[#d4af37]/20 flex items-center justify-center">
+      
+      {/* Halo de lumière central derrière l'étape active */}
+      <div className="absolute inset-0 flex justify-center items-center pointer-events-none">
+        <div className="w-32 h-32 bg-[#d4af37]/10 blur-[40px] rounded-full" />
+      </div>
+
+      {/* Curseur physique supérieur */}
+      <div className="absolute top-0 z-30 flex flex-col items-center">
+        <div className="w-12 h-1.5 bg-[#d4af37] rounded-b-xl shadow-[0_0_15px_#d4af37]" />
+        <div className="w-[1px] h-4 bg-[#d4af37]/40" />
+      </div>
 
       <motion.div
-        className="flex cursor-grab active:cursor-grabbing"
+        className="flex items-center h-full"
         drag="x"
-        // On élargit la zone de drag pour ne jamais bloquer
-        dragConstraints={{ left: -(steps.length - 1) * stepWidth, right: 0 }}
-        dragElastic={0.05}
+        dragConstraints={{ 
+          left: -(steps.length - 1) * stepWidth, 
+          right: 0 
+        }}
+        dragElastic={0.15}
         animate={{ x: -activeStep * stepWidth }}
         transition={{ type: "spring", stiffness: 200, damping: 25 }}
         onDragEnd={(_, info) => {
           const swipe = info.offset.x;
-          if (swipe < -40 && activeStep < steps.length - 1) onStepChange(activeStep + 1);
-          else if (swipe > 40 && activeStep > 0) onStepChange(activeStep - 1);
+          const velocity = info.velocity.x;
+          if ((swipe < -45 || velocity < -400) && activeStep < steps.length - 1) onStepChange(activeStep + 1);
+          else if ((swipe > 45 || velocity > 400) && activeStep > 0) onStepChange(activeStep - 1);
         }}
+        style={{ width: steps.length * stepWidth, touchAction: 'none' }}
       >
-        {/* On centre le premier élément au milieu de l'écran */}
-        <div style={{ width: "50vw", flexShrink: 0 }} /> 
-        
         {steps.map((s, i) => {
           const isActive = i === activeStep;
           return (
             <motion.div
               key={i}
               onClick={() => onStepChange(i)}
-              className="flex flex-col items-center justify-center shrink-0"
+              className="flex flex-col items-center justify-center shrink-0 cursor-pointer pt-4"
               style={{ width: stepWidth }}
               animate={{ 
-                scale: isActive ? 1.4 : 0.7,
-                opacity: isActive ? 1 : 0.15,
-                y: isActive ? 0 : 10
+                scale: isActive ? 1.4 : 0.75,
+                opacity: isActive ? 1 : 0.4, // Augmenté pour la visibilité
+                y: isActive ? 0 : 5
               }}
             >
-              <span className={`text-[8px] font-black uppercase mb-1 tracking-widest ${isActive ? 'text-[#d4af37]' : 'text-gray-600'}`}>
-                {isActive ? 'STEP ' + (i+1) : i+1}
+              <span className={`text-[9px] font-black uppercase mb-1 tracking-[0.2em] transition-colors ${isActive ? 'text-[#d4af37]' : 'text-gray-500'}`}>
+                STEP {i+1}
               </span>
-              <span className={`text-base font-black uppercase tracking-tighter text-center px-2 ${isActive ? 'text-white' : 'text-gray-800'}`}>
+              
+              <span className={`text-sm md:text-base font-black uppercase tracking-tight text-center px-2 leading-none break-words ${isActive ? 'text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]' : 'text-gray-600'}`}>
                 {s.name}
               </span>
+
               {isActive && (
-                <motion.div layoutId="activeBar" className="w-6 h-1 bg-[#d4af37] mt-3 rounded-full shadow-[0_0_10px_#d4af37]" />
+                <motion.div 
+                  layoutId="activeIndicator"
+                  className="mt-4 flex flex-col items-center"
+                >
+                  <div className="w-8 h-1 bg-[#d4af37] rounded-full shadow-[0_0_10px_#d4af37]" />
+                  <div className="text-[7px] font-black text-[#d4af37] mt-1 tracking-widest">ACTIVE</div>
+                </motion.div>
               )}
             </motion.div>
           );
         })}
-
-        <div style={{ width: "50vw", flexShrink: 0 }} />
       </motion.div>
 
-      {/* Masques de côté */}
-      <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-black to-transparent z-20 pointer-events-none" />
-      <div className="absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-black to-transparent z-20 pointer-events-none" />
+      {/* Masques latéraux plus transparents pour laisser voir ce qui arrive */}
+      <div className="absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-black via-black/40 to-transparent z-20 pointer-events-none" />
+      <div className="absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-black via-black/40 to-transparent z-20 pointer-events-none" />
     </div>
   );
 }
